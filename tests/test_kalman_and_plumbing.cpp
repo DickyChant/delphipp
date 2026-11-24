@@ -79,8 +79,9 @@ int main() {
         FieldLayerTable{
             .coord_min_cm = 180.0f,
             .coord_max_cm = 220.0f,
-            .grid_cm = {0.0f, 100.0f, 200.0f},
+            .bz_grid_cm = {0.0f, 100.0f, 200.0f},
             .bz_tesla = {1.20f, 1.18f, 1.10f},
+            .br_grid_cm = {0.0f, 100.0f, 200.0f},
             .br_tesla = {0.00f, 0.04f, 0.12f},
         },
     });

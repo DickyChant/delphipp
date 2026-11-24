@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(delphipp_db STATIC
+  src/cargo_decoder.cpp
   src/condition_db.cpp
   src/kapack_reader.cpp
 )

@@ -76,3 +76,7 @@ add_test(NAME reco_rich_vertex_dst COMMAND test_rich_vertex_dst)
 add_executable(test_kalman_and_plumbing test_kalman_and_plumbing.cpp)
 target_link_libraries(test_kalman_and_plumbing PRIVATE delphipp::core delphipp::db delphipp::io delphipp::reco::tracking)
 add_test(NAME kalman_and_plumbing COMMAND test_kalman_and_plumbing)
+
+add_executable(test_ufield_cargo_dst test_ufield_cargo_dst.cpp)
+target_link_libraries(test_ufield_cargo_dst PRIVATE delphipp::core delphipp::db delphipp::dst)
+add_test(NAME ufield_cargo_dst COMMAND test_ufield_cargo_dst)

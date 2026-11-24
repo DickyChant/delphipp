@@ -57,8 +57,9 @@ int main(int argc, char** argv) {
   const auto abst0 = cond_db.resolve_word("CALB", "GLOB$TPC*.GLOB$ENP0", "SLOW",
                                           14, {940526, 120000});
 
-  // 2. Magnetic field & Z -> mu+ mu- (45.6 GeV barrel muon) helix propagation
+  // 2. Real DELPHI measured magnetic field & Z -> mu+ mu- (45.6 GeV) helix propagation
   delphipp::MagneticField bfield;
+  bfield.load_delphi_map();
   const auto b0 = bfield.evaluate({0.0f, 0.0f, 0.0f});
   const float p_mu = 45.6f;
   const float inv_r = b0.bz / p_mu;

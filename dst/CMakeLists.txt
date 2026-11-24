@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: 2026 DELPHI++ Contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_library(delphipp_dst STATIC src/short_dst.cpp)
+add_library(delphipp_dst STATIC
+  src/dst_writer.cpp
+  src/short_dst.cpp
+)
 add_library(delphipp::dst ALIAS delphipp_dst)
 target_include_directories(delphipp_dst PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 target_link_libraries(delphipp_dst PUBLIC delphipp::core delphipp::reco::rich delphipp::reco::tracking)

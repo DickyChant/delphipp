@@ -79,8 +79,8 @@ FieldVector MagneticField::evaluate(const Vec3& xyz) const noexcept {
     for (const auto& lay : barrel_layers_) {
       if (rpseu >= lay.coord_min_cm && rpseu <= lay.coord_max_cm) {
         float bz_t = 0.0f, br_t = 0.0f;
-        if (interpolate_1d(za, lay.grid_cm, lay.bz_tesla, bz_t) &&
-            interpolate_1d(za, lay.grid_cm, lay.br_tesla, br_t)) {
+        if (interpolate_1d(za, lay.bz_grid_cm, lay.bz_tesla, bz_t) &&
+            interpolate_1d(za, lay.br_grid_cm, lay.br_tesla, br_t)) {
           bz = bz_t;
           br = br_t;
           found = true;
@@ -103,8 +103,8 @@ FieldVector MagneticField::evaluate(const Vec3& xyz) const noexcept {
     for (const auto& lay : endcap_layers_) {
       if (za >= lay.coord_min_cm && za <= lay.coord_max_cm) {
         float bz_t = 0.0f, br_t = 0.0f;
-        if (interpolate_1d(rpseu, lay.grid_cm, lay.bz_tesla, bz_t) &&
-            interpolate_1d(rpseu, lay.grid_cm, lay.br_tesla, br_t)) {
+        if (interpolate_1d(rpseu, lay.bz_grid_cm, lay.bz_tesla, bz_t) &&
+            interpolate_1d(rpseu, lay.br_grid_cm, lay.br_tesla, br_t)) {
           bz = bz_t;
           br = br_t;
           found = true;
