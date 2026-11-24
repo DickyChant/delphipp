@@ -52,3 +52,11 @@ add_test(NAME io_zebra_bank COMMAND test_zebra_bank_io)
 add_executable(test_ambiguity_solver test_ambiguity_solver.cpp)
 target_link_libraries(test_ambiguity_solver PRIVATE delphipp::reco::tracking)
 add_test(NAME reco_ambiguity_solver COMMAND test_ambiguity_solver)
+
+add_executable(test_emf test_emf.cpp)
+target_link_libraries(test_emf PRIVATE delphipp::reco::emf)
+add_test(NAME reco_emf COMMAND test_emf)
+
+add_executable(test_had test_had.cpp)
+target_link_libraries(test_had PRIVATE delphipp::reco::had)
+add_test(NAME reco_had COMMAND test_had)

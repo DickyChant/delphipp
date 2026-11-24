@@ -12,9 +12,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 |---|---|---|
 | **v0.1 — Phase 0 Scaffold** | CMake/C++20, CI (GCC + Clang + Docker), static inventory (`164` `.car` files), `bank_diff.py` harness | Done |
 | **v0.2 — Vertical Slice** | `ZebraStoreView`, `TanagraStore`, `DTRANS`, `MagneticField`, `PerigeeTrack` helix, ASCII `ConditionDatabase`, `FzExchange` framing, `HOF`/`MUS`/`MUF`/`MUB`/`TOF` core reco, `delphipp_reco` CLI + CI `bank_diff` gate | Done |
-| **v0.3 — Real Binary I/O & Tracking Core** | Binary `FOR050–056` KAPACK reader (`db/`), ZEBRA FZ bank materializer (`io/`), global track ambiguity solver (`reco/tracking/`) | In progress |
+| **v0.3 — Real Binary I/O & Tracking Core** | Binary `FOR050–056` KAPACK reader (`db/`), ZEBRA FZ bank materializer (`io/`), global track ambiguity solver (`reco/tracking/`) | Done |
 | **v0.4 — Real-Data Outer/Muon Validation** | Complete raw unpackers (`*DECO`/`*CALF`/`*UNPB`) & DB loaders (`*DBAS`) for `HOF`/`MUS`/`MUF`/`MUB`/`TOF`; match Fortran `TDR`/`TER` banks on real 94D raw events | Planned |
-| **v0.5 — Calorimeters & Luminosity** | `SAT`, `EMF`, `HAC`, `STW`, `LUM`, `STC`, `HPC` | Planned |
+| **v0.5 — Calorimeters & Luminosity** | `EMF` (done), `HAC` (done), `SAT`, `STW`, `LUM`, `STC`, `HPC` | In progress |
 | **v0.6 — Tracking Detectors & Global Fit** | `VD`, `ID`, `TPC`, `OD`, `FCA`, `FCB`, Kalman refit (`tkfb`/`tkff`/`exx`), vertexing (`vertex`/`fitvdz`) | Planned |
 | **v0.7 — RICH & Particle ID** | `richall`, `dedx*`, `muflag`, `elepha32`, `aabtagxx` | Planned |
 | **v1.0 — Full 94D DELANA + DST Parity** | `pxdst33`, `phdstxx`, `dstana10`, `shortdst`, `longdst`, `*fix` decks, full validation on runs `47014` & `54738` | Planned |
