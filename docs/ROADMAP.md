@@ -14,10 +14,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 | **v0.2 — Vertical Slice** | `ZebraStoreView`, `TanagraStore`, `DTRANS`, `MagneticField`, `PerigeeTrack` helix, ASCII `ConditionDatabase`, `FzExchange` framing, `HOF`/`MUS`/`MUF`/`MUB`/`TOF` core reco, `delphipp_reco` CLI + CI `bank_diff` gate | Done |
 | **v0.3 — Real Binary I/O & Tracking Core** | Binary `FOR050–056` KAPACK reader (`db/`), ZEBRA FZ bank materializer (`io/`), global track ambiguity solver (`reco/tracking/`) | Done |
 | **v0.4 — Real-Data Outer/Muon Validation** | Complete raw unpackers (`*DECO`/`*CALF`/`*UNPB`) & DB loaders (`*DBAS`) for `HOF`/`MUS`/`MUF`/`MUB`/`TOF`; match Fortran `TDR`/`TER` banks on real 94D raw events | Planned |
-| **v0.5 — Calorimeters & Luminosity** | `EMF` (done), `HAC` (done), `SAT`, `STW`, `LUM`, `STC`, `HPC` | In progress |
-| **v0.6 — Tracking Detectors & Global Fit** | `VD`, `ID`, `TPC`, `OD`, `FCA`, `FCB`, Kalman refit (`tkfb`/`tkff`/`exx`), vertexing (`vertex`/`fitvdz`) | Planned |
-| **v0.7 — RICH & Particle ID** | `richall`, `dedx*`, `muflag`, `elepha32`, `aabtagxx` | Planned |
-| **v1.0 — Full 94D DELANA + DST Parity** | `pxdst33`, `phdstxx`, `dstana10`, `shortdst`, `longdst`, `*fix` decks, full validation on runs `47014` & `54738` | Planned |
+| **v0.5 — Calorimeters & Luminosity** | `EMF`, `HAC`, `HPC`, `STC`, `SAT`/`LUM` | Done (core C++20) |
+| **v0.6 — Tracking Detectors & Global Fit** | `VD`, `ID`, `TPC` (with 94D ABST0), `OD`, `FCA`/`FCB`, ambiguity solver, primary vertex fitter | Done (core C++20) |
+| **v0.7 — RICH & Particle ID** | `BRICH`/`FRICH` Cherenkov likelihood, TPC `dE/dx`, muon & electron/photon PID | Done (core C++20) |
+| **v1.0 — Full 94D DELANA + DST Parity** | `dst/` Short-DST builder implemented; remaining work is full raw-bank unpackers, binary CARGO/KAPACK B-tree traversal, Kalman refit, and real-data validation on runs `47014` & `54738` | In progress |
 
 ## Subsystem Progress Matrix
 

@@ -7,11 +7,24 @@ target_link_libraries(delphipp_reco
     delphipp::core
     delphipp::db
     delphipp::io
+    delphipp::dst
     delphipp::reco::hof
     delphipp::reco::mus
     delphipp::reco::muf
     delphipp::reco::mub
     delphipp::reco::tof
+    delphipp::reco::emf
+    delphipp::reco::had
+    delphipp::reco::hpc
+    delphipp::reco::stc
+    delphipp::reco::sat
+    delphipp::reco::vd
+    delphipp::reco::tpc
+    delphipp::reco::id
+    delphipp::reco::od
+    delphipp::reco::fwd
+    delphipp::reco::rich
+    delphipp::reco::tracking
 )
 target_compile_features(delphipp_reco PRIVATE cxx_std_20)
 

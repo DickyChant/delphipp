@@ -68,3 +68,7 @@ add_test(NAME reco_calorimeters_wave1 COMMAND test_calorimeters_wave1)
 add_executable(test_trackers_wave2 test_trackers_wave2.cpp)
 target_link_libraries(test_trackers_wave2 PRIVATE delphipp::reco::vd delphipp::reco::tpc delphipp::reco::id delphipp::reco::od delphipp::reco::fwd)
 add_test(NAME reco_trackers_wave2 COMMAND test_trackers_wave2)
+
+add_executable(test_rich_vertex_dst test_rich_vertex_dst.cpp)
+target_link_libraries(test_rich_vertex_dst PRIVATE delphipp::dst delphipp::reco::rich delphipp::reco::tracking)
+add_test(NAME reco_rich_vertex_dst COMMAND test_rich_vertex_dst)
