@@ -162,22 +162,54 @@ void update_event_header_from_head(const ParsedZebraBank& head,
   }
 }
 
+bool is_plausible_known_bank(const std::string& idh,
+                             std::int32_t idn,
+                             std::int32_t nl,
+                             std::int32_t ns,
+                             std::int32_t nd) noexcept {
+  if (!known_bank_priority_set().contains(idh)) {
+    return false;
+  }
+  if (idn < 0 || idn > 1'000'000 || nl < 0 || ns < 0 || ns > nl || nd < 0) {
+    return false;
+  }
+  if (idh == "DTOP") {
+    return nl >= 1 && nl <= 256 && nd >= 1 && nd <= 512;
+  }
+  if (idh == "MINI") {
+    return nl >= 1 && nl <= 256 && nd >= 1 && nd <= 1024;
+  }
+  if (idh == "TOP ") {
+    return nl == 7 && ns == 7 && nd >= 1 && nd <= 128;
+  }
+  if (idh == "HEAD") {
+    return nl <= 64 && nd >= 1 && nd <= 512;
+  }
+  if (idh == "PV  ") {
+    return nl <= 16 && nd >= 6 && nd <= 256;
+  }
+  if (idh == "PA  ") {
+    return nl <= 16 && nd >= 15 && nd <= 4096;
+  }
+  return nl <= 256 && nd <= 65536 && (nd > 0 || nl > 0);
+}
+
 void scan_banks_in_words(const std::vector<std::int32_t>& words,
                          bool big_endian,
                          std::size_t max_events,
                          FzParseResult& result) {
   std::vector<ParsedZebraBank> all_banks;
   for (std::size_t p = 0; p + 6 <= words.size();) {
+    const std::int32_t idn = words[p];
     const std::uint32_t idh_u = static_cast<std::uint32_t>(words[p + 1]);
     const std::int32_t nl = words[p + 2];
     const std::int32_t ns = words[p + 3];
     const std::int32_t nd = words[p + 4];
 
-    if (nl >= 0 && nl <= 256 && ns >= 0 && ns <= nl && nd >= 0 && nd <= 262144 &&
+    if (nl >= 0 && nl <= 256 && ns >= 0 && ns <= nl && nd >= 0 && nd <= 65536 &&
         p + 6 + static_cast<std::size_t>(nd) <= words.size()) {
       if (const auto idh = decode_hollerith_word(idh_u, big_endian)) {
-        // Require either a known bank ID or at least 1 word/link so plain integers don't false-match
-        if (known_bank_priority_set().contains(*idh) || nd > 0 || nl > 0) {
+        if (is_plausible_known_bank(*idh, idn, nl, ns, nd)) {
           all_banks.push_back(make_bank_at(words, p, *idh));
           ++result.total_banks;
           ++result.bank_counts[*idh];
