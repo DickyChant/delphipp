@@ -3,6 +3,7 @@
 
 add_library(delphipp_io STATIC
   src/fz_exchange.cpp
+  src/fz_scanner.cpp
   src/raw_blocklet.cpp
   src/zebra_bank_io.cpp
 )

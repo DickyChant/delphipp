@@ -80,3 +80,7 @@ add_test(NAME kalman_and_plumbing COMMAND test_kalman_and_plumbing)
 add_executable(test_ufield_cargo_dst test_ufield_cargo_dst.cpp)
 target_link_libraries(test_ufield_cargo_dst PRIVATE delphipp::core delphipp::db delphipp::dst)
 add_test(NAME ufield_cargo_dst COMMAND test_ufield_cargo_dst)
+
+add_executable(test_fz_scanner test_fz_scanner.cpp)
+target_link_libraries(test_fz_scanner PRIVATE delphipp::io)
+add_test(NAME io_fz_scanner COMMAND test_fz_scanner)
