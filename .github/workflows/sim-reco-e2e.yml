@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Self-contained 10-event DELPHI simulation -> raw (fadsim) + DST (fadana/sdst)
-# -> DELPHI++ ZEBRA FZ inspection & reconstruction E2E pipeline.
+# -> CERNLIB Fortran reference dump + DELPHI++ C++20 ZEBRA FZ parsing,
+# reconstruction, CSV & HepMC3 export E2E pipeline.
 # No continue-on-error: every step must genuinely succeed and log verbose output.
 
 name: Sim-to-Reco E2E (10 events)
@@ -19,11 +20,13 @@ on:
     paths:
       - ".github/workflows/sim-reco-e2e.yml"
       - "io/**"
+      - "dst/**"
       - "apps/**"
+      - "tools/fortran_fz_dump.f"
 
 jobs:
   sim-and-reco:
-    name: Generate 10 DELSIM events (up to raw) -> Inspect & Reco with DELPHI++
+    name: Generate 10 DELSIM events -> Fortran Reference & DELPHI++ C++20 Reco
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -43,8 +46,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           cmake --build build
+          ctest --test-dir build --output-on-failure
 
-      - name: Generate 10 real DELPHI events up to raw (fadsim) + full/short DST
+      - name: Generate 10 real DELPHI events (DELPHI_ZIP=off) & run CERNLIB Fortran reference dump
         run: |
           set -euo pipefail
           NEV="${{ github.event.inputs.nevents || '10' }}"
@@ -56,10 +60,11 @@ jobs:
           echo "=== Pulling public DELPHI simulation image: $IMAGE ==="
           docker pull "$IMAGE"
 
-          echo "=== Running Pythia8 ($PYTHIA_NEV evts) -> DELSIM/DELANA ($NEV evts), preserving simana.fadsim (raw) ==="
+          echo "=== Running Pythia8 ($PYTHIA_NEV evts) -> DELSIM/DELANA ($NEV evts) + Fortran CERNLIB FZ reference ==="
           docker run --rm \
             -v /cvmfs:/cvmfs:ro \
             -v "$PWD/sim_out:/work/output" \
+            -v "$PWD/tools:/work/delphipp_tools:ro" \
             --entrypoint bash \
             "$IMAGE" \
             -c "
@@ -80,7 +85,7 @@ jobs:
               export DELPHI_BATCAVE='/delphi/pdl'
               export OPENPHIGS='/delphi/releases/almalinux-9-x86_64/latest/openphigs'
               export DELPHI_BLKD='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/blkd'
-              export DELPHI_ZIP='on'
+              export DELPHI_ZIP='off'
               export DELPHI_XRD=''
               export DELPHI_DATA_ROOT='/eos/opendata/delphi'
               export GRA_PLACE='/delphi/releases/almalinux-9-x86_64/latest/delgra'
@@ -111,30 +116,65 @@ jobs:
                   cp \"\$f\" \"/work/output/\$f\"
                 fi
               done
+
+              echo '=== Compiling standalone CERNLIB Fortran reference dumper ==='
+              CERN_FLAGS=\"\$(cernlib packlib 2>/dev/null || echo \"-L\${CERN_LIB} -lpacklib -lkernlib\")\"
+              gfortran -O2 -std=legacy /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \$CERN_FLAGS
+              for f in simana.fadsim simana.sdst; do
+                if [ -f \"/work/output/\$f\" ]; then
+                  echo \"=== Running Fortran CERNLIB FZIN on \$f ===\"
+                  /work/fortran_fz_dump \"/work/output/\$f\" | tee \"/work/output/fortran_\${f}.txt\"
+                fi
+              done
             "
 
           echo "=== Output files collected in sim_out/ ==="
           ls -lh "$PWD/sim_out"
           test -s "$PWD/sim_out/simana.fadsim" || test -s "$PWD/sim_out/simana.sdst"
 
-      - name: Inspect real DELSIM raw/DST FZ files with delphipp_fz_inspect
+      - name: Inspect and reconstruct real DELSIM raw & DST FZ files with DELPHI++ (C++20)
         run: |
           set -euo pipefail
           mkdir -p "$PWD/e2e_reports"
+          cp "$PWD"/sim_out/fortran_*.txt "$PWD/e2e_reports/" 2>/dev/null || true
+
           INSPECTED=0
           for f in "$PWD"/sim_out/simana.fadsim "$PWD"/sim_out/simana.fadana "$PWD"/sim_out/simana.sdst; do
             [ -f "$f" ] || continue
             INSPECTED=$((INSPECTED + 1))
             base="$(basename "$f")"
             echo "========================================"
-            echo "Inspecting real DELPHI file: $base ($(stat -c%s "$f") bytes)"
+            echo "DELPHI++ Inspection + C++20 Reco: $base ($(stat -c%s "$f") bytes)"
             echo "========================================"
-            ./build/apps/delphipp_fz_inspect "$f" | tee "$PWD/e2e_reports/${base}.json"
+            ./build/apps/delphipp_fz_inspect "$f" | tee "$PWD/e2e_reports/${base}_inspect.json"
+            ./build/apps/delphipp_reco \
+              --input "$f" \
+              --verbose \
+              --out "$PWD/e2e_reports/${base}_reco.json" \
+              --csv-out "$PWD/e2e_reports/${base}_dst.csv" \
+              --hepmc-out "$PWD/e2e_reports/${base}.hepmc3"
+
+            if [ -s "$PWD/e2e_reports/${base}_dst.csv" ]; then
+              echo "--- Preview ${base}_dst.csv (first 25 lines) ---"
+              head -n 25 "$PWD/e2e_reports/${base}_dst.csv"
+            fi
+            if [ -s "$PWD/e2e_reports/${base}.hepmc3" ]; then
+              echo "--- Preview ${base}.hepmc3 (first 25 lines) ---"
+              head -n 25 "$PWD/e2e_reports/${base}.hepmc3"
+            fi
           done
           test "$INSPECTED" -gt 0
-          ./build/apps/delphipp_reco --run 47014 --event 1 --verbose --out "$PWD/e2e_reports/delphipp_reco.json"
 
-      - name: Upload E2E inspection & reco reports
+          echo "=== Synthetic 94D benchmark check ==="
+          ./build/apps/delphipp_reco \
+            --run 47014 \
+            --event 1 \
+            --verbose \
+            --out "$PWD/e2e_reports/delphipp_synthetic_reco.json" \
+            --csv-out "$PWD/e2e_reports/delphipp_synthetic.csv" \
+            --hepmc-out "$PWD/e2e_reports/delphipp_synthetic.hepmc3"
+
+      - name: Upload E2E inspection, Fortran reference, CSV & HepMC3 reports
         uses: actions/upload-artifact@v4
         with:
           name: delphipp-sim-reco-e2e

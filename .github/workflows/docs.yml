@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 DELPHI++ Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "core/**"
+      - "db/**"
+      - "io/**"
+      - "reco/**"
+      - "dst/**"
+      - "apps/**"
+      - ".github/workflows/docs.yml"
+
+jobs:
+  build-docs:
+    name: Build Doxygen + doxygen-awesome-css HTML
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen and Graphviz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz git
+
+      - name: Fetch doxygen-awesome-css v2.3.4
+        run: |
+          rm -rf docs/doxygen-awesome-css
+          git clone --depth 1 --branch v2.3.4 https://github.com/jothepro/doxygen-awesome-css.git docs/doxygen-awesome-css
+          ls -la docs/doxygen-awesome-css
+
+      - name: Generate HTML documentation
+        run: |
+          doxygen docs/Doxyfile
+          test -s docs/_build/html/index.html
+          grep -q "doxygen-awesome.css" docs/_build/html/index.html
+          echo "Generated HTML files: $(find docs/_build/html -type f | wc -l)"
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: delphipp-docs-html
+          path: docs/_build/html/

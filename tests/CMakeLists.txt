@@ -84,3 +84,7 @@ add_test(NAME ufield_cargo_dst COMMAND test_ufield_cargo_dst)
 add_executable(test_fz_scanner test_fz_scanner.cpp)
 target_link_libraries(test_fz_scanner PRIVATE delphipp::io)
 add_test(NAME io_fz_scanner COMMAND test_fz_scanner)
+
+add_executable(test_fz_zebra_parser test_fz_zebra_parser.cpp)
+target_link_libraries(test_fz_zebra_parser PRIVATE delphipp::io)
+add_test(NAME io_fz_zebra_parser COMMAND test_fz_zebra_parser)

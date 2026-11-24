@@ -1,0 +1,40 @@
+# Doxygen configuration for DELPHI++ with doxygen-awesome-css (run from repo root)
+
+PROJECT_NAME           = "DELPHI++"
+PROJECT_NUMBER         = "0.2.0"
+PROJECT_BRIEF          = "Pure C++20 DELPHI Event Simulation & Reconstruction"
+
+OUTPUT_DIRECTORY       = docs/_build
+HTML_OUTPUT            = html
+CREATE_SUBDIRS         = NO
+
+INPUT                  = README.md core db io reco dst apps
+FILE_PATTERNS          = *.hpp *.h *.cpp *.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */build/* */_deps/* */docs/_build/*
+USE_MDFILE_AS_MAINPAGE = README.md
+
+OPTIMIZE_OUTPUT_FOR_C  = NO
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+JAVADOC_AUTOBRIEF      = YES
+WARN_IF_UNDOCUMENTED   = NO
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+HTML_COLORSTYLE        = LIGHT
+HTML_EXTRA_STYLESHEET  = docs/doxygen-awesome-css/doxygen-awesome.css \
+                         docs/doxygen-awesome-css/doxygen-awesome-sidebar-only.css
+
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = NO
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = NO
+UML_LOOK               = YES
