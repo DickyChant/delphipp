@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Self-contained 10-event DELPHI simulation -> raw (fadsim) + DST (fadana/sdst)
-# -> CERNLIB Fortran reference dump + DELPHI++ C++20 ZEBRA FZ parsing,
-# reconstruction, CSV & HepMC3 export E2E pipeline.
+# -> DELPHI++ C++20 ZEBRA FZ parsing, reconstruction, CSV & HepMC3 export
+# -> CERNLIB Fortran reference comparison E2E pipeline.
 # No continue-on-error: every step must genuinely succeed and log verbose output.
 
 name: Sim-to-Reco E2E (10 events)
@@ -26,7 +26,7 @@ on:
 
 jobs:
   sim-and-reco:
-    name: Generate 10 DELSIM events -> Fortran Reference & DELPHI++ C++20 Reco
+    name: Generate 10 DELSIM events -> DELPHI++ C++20 Reco & Fortran Reference
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -121,46 +121,10 @@ jobs:
           ls -lh "$PWD/sim_out"
           test -s "$PWD/sim_out/simana.fadsim" || test -s "$PWD/sim_out/simana.sdst"
 
-      - name: Run CERNLIB Fortran reference dump on real DELSIM files
-        run: |
-          set -euo pipefail
-          IMAGE="docker.io/jingyucms/delphi-sim:latest"
-          docker run --rm \
-            -v "$PWD/sim_out:/work/output" \
-            -v "$PWD/tools:/work/delphipp_tools:ro" \
-            --entrypoint bash \
-            "$IMAGE" \
-            -c '
-              set -euo pipefail
-              export CERN_ROOT="/delphi/releases/almalinux-9-x86_64/latest/cern/pro"
-              export CERN_LIB="${CERN_ROOT}/lib"
-              export PATH="${CERN_ROOT}/bin:/usr/local/bin:/usr/bin:/bin"
-              echo "gfortran: $(which gfortran)"
-              ls -la "${CERN_LIB}" | head -20
-
-              gfortran -O2 -std=legacy -fallow-argument-mismatch \
-                /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \
-                -L"${CERN_LIB}" -lpacklib -lkernlib -lm -ldl \
-              || gfortran -O2 -std=legacy -fallow-argument-mismatch -no-pie \
-                /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \
-                -L"${CERN_LIB}" -lpacklib -lkernlib -lm -ldl \
-              || gfortran -O2 -std=legacy -fallow-argument-mismatch \
-                /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \
-                $(cernlib packlib)
-
-              for f in simana.fadsim simana.sdst; do
-                if [ -f "/work/output/$f" ]; then
-                  echo "=== Running Fortran CERNLIB FZIN on $f ==="
-                  /work/fortran_fz_dump "/work/output/$f" | tee "/work/output/fortran_${f}.txt"
-                fi
-              done
-            '
-
       - name: Inspect and reconstruct real DELSIM raw & DST FZ files with DELPHI++ (C++20)
         run: |
           set -euo pipefail
           mkdir -p "$PWD/e2e_reports"
-          cp "$PWD"/sim_out/fortran_*.txt "$PWD/e2e_reports/" 2>/dev/null || true
 
           INSPECTED=0
           for f in "$PWD"/sim_out/simana.fadsim "$PWD"/sim_out/simana.fadana "$PWD"/sim_out/simana.sdst; do
@@ -197,6 +161,50 @@ jobs:
             --out "$PWD/e2e_reports/delphipp_synthetic_reco.json" \
             --csv-out "$PWD/e2e_reports/delphipp_synthetic.csv" \
             --hepmc-out "$PWD/e2e_reports/delphipp_synthetic.hepmc3"
+
+      - name: Run CERNLIB Fortran reference dump on real DELSIM files
+        run: |
+          set -euo pipefail
+          IMAGE="docker.io/jingyucms/delphi-sim:latest"
+          docker run --rm \
+            -v /cvmfs:/cvmfs:ro \
+            -v "$PWD/sim_out:/work/output" \
+            -v "$PWD/tools:/work/delphipp_tools:ro" \
+            --entrypoint bash \
+            "$IMAGE" \
+            -c '
+              set -euo pipefail
+              export CERN_ROOT="/delphi/releases/almalinux-9-x86_64/latest/cern/pro"
+              export CERN_LIB="${CERN_ROOT}/lib"
+              export PATH="${CERN_ROOT}/bin:/usr/local/bin:/usr/bin:/bin"
+              export LD_LIBRARY_PATH="/usr/lib64:/lib64"
+
+              if ! command -v gfortran >/dev/null 2>&1; then
+                echo "Installing gcc-gfortran..."
+                dnf install -y -q gcc-gfortran
+              fi
+              echo "gfortran: $(command -v gfortran)"
+              ls -la "${CERN_LIB}" || true
+
+              gfortran -O2 -std=legacy -fallow-argument-mismatch \
+                /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \
+                -L"${CERN_LIB}" -lpacklib -lkernlib -lm -ldl \
+              || gfortran -O2 -std=legacy -fallow-argument-mismatch -no-pie \
+                /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \
+                -L"${CERN_LIB}" -lpacklib -lkernlib -lm -ldl \
+              || gfortran -O2 -std=legacy -fallow-argument-mismatch \
+                /work/delphipp_tools/fortran_fz_dump.f -o /work/fortran_fz_dump \
+                $(cernlib packlib)
+
+              for f in simana.fadsim simana.sdst; do
+                if [ -f "/work/output/$f" ]; then
+                  echo "=== Running Fortran CERNLIB FZIN on $f ==="
+                  /work/fortran_fz_dump "/work/output/$f" | tee "/work/output/fortran_${f}.txt"
+                fi
+              done
+            '
+          mkdir -p "$PWD/e2e_reports"
+          cp "$PWD"/sim_out/fortran_*.txt "$PWD/e2e_reports/" 2>/dev/null || true
 
       - name: Upload E2E inspection, Fortran reference, CSV & HepMC3 reports
         if: always()
