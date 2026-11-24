@@ -8,7 +8,7 @@ OUTPUT_DIRECTORY       = docs/_build
 HTML_OUTPUT            = html
 CREATE_SUBDIRS         = NO
 
-INPUT                  = README.md core db io reco dst apps
+INPUT                  = README.md docs core db io reco dst pipeline apps
 FILE_PATTERNS          = *.hpp *.h *.cpp *.md
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */build/* */_deps/* */docs/_build/*

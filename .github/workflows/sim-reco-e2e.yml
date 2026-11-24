@@ -21,8 +21,10 @@ on:
       - ".github/workflows/sim-reco-e2e.yml"
       - "io/**"
       - "dst/**"
+      - "pipeline/**"
       - "apps/**"
       - "tools/fortran_fz_dump.f"
+      - "tools/compare_fortran_cpp.py"
 
 jobs:
   sim-and-reco:
@@ -139,6 +141,7 @@ jobs:
               --input "$f" \
               --verbose \
               --out "$PWD/e2e_reports/${base}_reco.json" \
+              --summary-json "$PWD/e2e_reports/${base}_summary.json" \
               --csv-out "$PWD/e2e_reports/${base}_dst.csv" \
               --hepmc-out "$PWD/e2e_reports/${base}.hepmc3"
 
@@ -205,6 +208,20 @@ jobs:
             '
           mkdir -p "$PWD/e2e_reports"
           cp "$PWD"/sim_out/fortran_*.txt "$PWD/e2e_reports/" 2>/dev/null || true
+
+      - name: Cross-check CERNLIB Fortran vs DELPHI++ C++20
+        run: |
+          set -euo pipefail
+          CHECKED=0
+          for base in simana.fadsim simana.sdst; do
+            ftxt="$PWD/e2e_reports/fortran_${base}.txt"
+            csum="$PWD/e2e_reports/${base}_summary.json"
+            if [ -f "$ftxt" ] && [ -f "$csum" ]; then
+              CHECKED=$((CHECKED + 1))
+              python3 tools/compare_fortran_cpp.py --fortran "$ftxt" --cpp "$csum" --label "$base"
+            fi
+          done
+          test "$CHECKED" -gt 0
 
       - name: Upload E2E inspection, Fortran reference, CSV & HepMC3 reports
         if: always()

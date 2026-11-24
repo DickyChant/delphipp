@@ -5,9 +5,8 @@
 // Supports both:
 //   1. Self-contained synthetic Z -> mu+ mu- event mode (when --input is omitted).
 //   2. Real CERNLIB ZEBRA FZ Exchange file mode (--input <file.fadsim|.sdst|.fz>):
-//      parses physical/logical ZEBRA bank structures, populates ZebraStoreView,
-//      runs raw detector unpacking (HOF/EGRA, raw blocklets) & Short-DST PA/PV
-//      reconstruction, and exports bank_diff JSON, CSV, and HepMC3 Asciiv3.
+//      runs EventReconstructionPipeline across parsed events and exports
+//      bank_diff JSON, structured summary JSON (--summary-json), CSV, and HepMC3.
 
 #include <algorithm>
 #include <cmath>
@@ -25,19 +24,18 @@
 #include "delphipp/helix.hpp"
 #include "delphipp/io/fz_exchange.hpp"
 #include "delphipp/io/fz_zebra_parser.hpp"
-#include "delphipp/io/raw_blocklet.hpp"
 #include "delphipp/magnetic_field.hpp"
-#include "delphipp/reco/hof.hpp"
+#include "delphipp/pipeline/event_pipeline.hpp"
 #include "delphipp/reco/mub.hpp"
 #include "delphipp/reco/tof.hpp"
 #include "delphipp/tanagra_store.hpp"
-#include "delphipp/zebra_store.hpp"
 
 namespace {
 
 struct CliOptions {
   std::string input_fz_path;
   std::string out_json_path;
+  std::string summary_json_path;
   std::string csv_out_path;
   std::string hepmc_out_path;
   std::int32_t run_number = 47014;
@@ -54,6 +52,8 @@ CliOptions parse_cli(int argc, char** argv) {
       opt.input_fz_path = argv[++i];
     } else if (arg == "--out" && i + 1 < argc) {
       opt.out_json_path = argv[++i];
+    } else if (arg == "--summary-json" && i + 1 < argc) {
+      opt.summary_json_path = argv[++i];
     } else if (arg == "--csv-out" && i + 1 < argc) {
       opt.csv_out_path = argv[++i];
     } else if (arg == "--hepmc-out" && i + 1 < argc) {
@@ -69,27 +69,6 @@ CliOptions parse_cli(int argc, char** argv) {
     }
   }
   return opt;
-}
-
-delphipp::PerigeeTrack track_from_p3_charge(float px,
-                                            float py,
-                                            float pz,
-                                            std::int32_t charge,
-                                            float bz,
-                                            float eps = 0.0f,
-                                            float z0 = 0.0f) {
-  const float p = std::sqrt(px * px + py * py + pz * pz);
-  const float theta = (p > 1e-6f) ? std::acos(std::clamp(pz / p, -1.0f, 1.0f)) : 1.5707963f;
-  const float phi0 = std::atan2(py, px);
-  const float signed_q = (charge == 0) ? 1.0f : static_cast<float>(charge);
-  const float inv_r = (p > 1e-5f) ? (signed_q * bz / p) : 0.0f;
-  return delphipp::PerigeeTrack{
-      .eps = eps,
-      .z0 = z0,
-      .theta = theta,
-      .phi0 = phi0,
-      .inv_r = inv_r,
-  };
 }
 
 int run_synthetic_event(const CliOptions& opt,
@@ -170,7 +149,6 @@ int run_synthetic_event(const CliOptions& opt,
     return 1;
   }
 
-  // Also synthesize corresponding DstEvent if CSV or HepMC3 outputs requested
   std::vector<delphipp::dst::TrackPidInput> tracks = {
       {.track = mu_track, .charge = +1, .ecal_energy_gev = 0.3f, .hcal_energy_gev = 2.1f, .has_muon_hit = true},
   };
@@ -234,6 +212,7 @@ int run_fz_file_reco(const CliOptions& opt,
   }
 
   const auto b0 = bfield.evaluate({0.0f, 0.0f, 0.0f});
+  delphipp::pipeline::EventReconstructionPipeline pipeline(bfield, abst0_val);
 
   std::ofstream csv_ofs;
   if (!opt.csv_out_path.empty()) {
@@ -261,169 +240,77 @@ int run_fz_file_reco(const CliOptions& opt,
   }
 
   std::vector<std::string> event_jsons;
+  std::vector<delphipp::pipeline::EventRecoOutput> reco_outputs;
   event_jsons.reserve(parsed.events.size());
-  delphipp::reco::hof::HofCalibration hof_calib{};
-  delphipp::reco::hof::HofStats hof_stats{};
-  hof_stats.reset_run();
+  reco_outputs.reserve(parsed.events.size());
 
   for (std::size_t ev_idx = 0; ev_idx < parsed.events.size(); ++ev_idx) {
-    const auto& ev = parsed.events[ev_idx];
-    const std::int32_t run = (ev.run_number > 0) ? ev.run_number : opt.run_number;
-    const std::int32_t evt = (ev.event_number > 0)
-                                 ? ev.event_number
-                                 : static_cast<std::int32_t>(ev_idx + 1);
-
-    delphipp::OwnedZebraStore zstore(65536);
-    auto zview = zstore.view();
-    const auto bank_heads = ev.populate_zebra_store(zview);
-
-    delphipp::TanagraStore tstore;
-
-    // 1. Run HOF raw blocklet unpacking if EGRA/EQRA banks are present
-    std::int32_t hof_hits_count = 0;
-    if (auto it = bank_heads.find("EGRA"); it != bank_heads.end()) {
-      hof_stats.begin_event();
-      const std::int32_t mraw =
-          bank_heads.contains("EQRA") ? bank_heads.at("EQRA") : 0;
-      const auto hof_res = delphipp::reco::hof::unpack_td(
-          zview, it->second, mraw, hof_calib, hof_stats);
-      hof_hits_count = hof_res.counter_hits;
-      if (!hof_res.hits.empty()) {
-        std::vector<float> flat;
-        flat.reserve(hof_res.hits.size() * 8);
-        for (const auto& h : hof_res.hits) {
-          flat.insert(flat.end(), h.words.begin(), h.words.end());
-        }
-        tstore.add_tdr(delphipp::TdrBank{
-            .detector_id = delphipp::reco::hof::kDetectorId,
-            .submod_id = 1,
-            .descriptor = 290,
-            .num_points = static_cast<std::int32_t>(hof_res.hits.size()),
-            .words_per_point = 8,
-            .data = std::move(flat),
-        });
-      }
-    }
-
-    // 2. Summarize raw blocklets from any present DELPHI *RA banks into TanagraStore
-    std::size_t raw_blocklets_decoded = 0;
-    for (const std::string raw_id : {"EGRA", "EQRA", "EDRA", "EMRA", "EFRA", "RAW "}) {
-      if (auto it = bank_heads.find(raw_id); it != bank_heads.end()) {
-        const auto blocklets = delphipp::io::read_raw_blocklet_chain(zview, it->second);
-        raw_blocklets_decoded += blocklets.size();
-        for (const auto& bl : blocklets) {
-          tstore.add_tdr(delphipp::TdrBank{
-              .detector_id = bl.detector_id,
-              .submod_id = bl.subdet_id,
-              .descriptor = bl.flags,
-              .num_points = 1,
-              .words_per_point = static_cast<std::int32_t>(
-                  std::min<std::size_t>(bl.data.size(), 4)),
-              .data = {
-                  static_cast<float>(bl.num_words),
-                  static_cast<float>(bl.detector_id),
-                  static_cast<float>(bl.subdet_id),
-                  abst0_val,
-              },
-          });
-        }
-      }
-    }
-
-    // 3. Extract PV vertex and PA charged/neutral particles (from .sdst/.fadana)
-    delphipp::reco::tracking::BeamspotConstraint beamspot{};
-    if (const auto* pv = ev.find_first("PV  "); pv != nullptr && pv->fwords.size() >= 7) {
-      const float vx = pv->fwords[4];
-      const float vy = pv->fwords[5];
-      const float vz = pv->fwords[6];
-      if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
-          std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f && std::fabs(vz) < 50.0f) {
-        beamspot.xyz_cm = {vx, vy, vz};
-      }
-    }
-
-    std::vector<delphipp::dst::TrackPidInput> charged_tracks;
-    std::vector<delphipp::dst::NeutralInput> neutrals;
-    const auto pa_banks = ev.find_all("PA  ");
-    for (const auto* pa : pa_banks) {
-      if (pa->iwords.size() < 20) {
-        continue;
-      }
-      // pxds33.car: IP1 = LPA + 5 + IQ(LPA+4) -> 0-based index 4 + iwords[3]
-      const std::int32_t nmod = pa->iwords[3];
-      if (nmod < 1 || nmod > 32) {
-        continue;
-      }
-      const std::size_t ip1 = static_cast<std::size_t>(4 + nmod);
-      if (ip1 + 10 >= pa->fwords.size()) {
-        continue;
-      }
-      const float px = pa->fwords[ip1 + 2];
-      const float py = pa->fwords[ip1 + 3];
-      const float pz = pa->fwords[ip1 + 4];
-      const float energy = pa->fwords[ip1 + 5];
-      const float ch_code_f = pa->fwords[ip1 + 7];
-      const float rp = (ip1 + 10 < pa->fwords.size()) ? pa->fwords[ip1 + 10] : 0.0f;
-      const float dz = (ip1 + 19 < pa->fwords.size()) ? pa->fwords[ip1 + 19] : 0.0f;
-
-      if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz) ||
-          !std::isfinite(energy) || energy < 0.0f || energy > 200.0f) {
-        continue;
-      }
-      const int ch_code = static_cast<int>(std::lround(ch_code_f));
-      if (ch_code == 1 || ch_code == 2) {
-        const std::int32_t q = (ch_code == 1) ? +1 : -1;
-        const auto trk = track_from_p3_charge(
-            px, py, pz, q, b0.bz,
-            std::isfinite(rp) ? rp : 0.0f,
-            std::isfinite(dz) ? dz : 0.0f);
-        charged_tracks.push_back(delphipp::dst::TrackPidInput{
-            .track = trk,
-            .charge = q,
-        });
-        tstore.add_tkr(delphipp::TkrBank{
-            .charge = q,
-            .perigee_params = {trk.eps, trk.z0, trk.theta, trk.phi0, trk.inv_r},
-        });
-      } else {
-        const float p_mag = std::sqrt(px * px + py * py + pz * pz);
-        if (p_mag > 1e-4f) {
-          const float scale = 200.0f / p_mag;
-          neutrals.push_back(delphipp::dst::NeutralInput{
-              .xyz_cm = {px * scale, py * scale, pz * scale},
-              .energy_gev = energy,
-              .is_ecal = true,
-          });
-        }
-      }
-    }
-
-    const auto dst_ev = delphipp::dst::build_short_dst(
-        run, evt, b0.bz, charged_tracks, neutrals, beamspot);
+    auto res = pipeline.reconstruct_event(
+        parsed.events[ev_idx],
+        opt.run_number,
+        static_cast<std::int32_t>(ev_idx + 1));
 
     if (csv_ofs.is_open()) {
-      delphipp::dst::write_csv_event(csv_ofs, dst_ev);
+      delphipp::dst::write_csv_event(csv_ofs, res.dst_event);
     }
     if (hm_ofs.is_open()) {
-      delphipp::dst::write_hepmc3_event(hm_ofs, dst_ev);
+      delphipp::dst::write_hepmc3_event(hm_ofs, res.dst_event);
     }
 
-    event_jsons.push_back(tstore.to_bank_diff_json(run, evt));
+    event_jsons.push_back(res.tanagra.to_bank_diff_json(res.run, res.event));
 
     if (opt.verbose) {
-      std::cout << "  Event #" << (ev_idx + 1) << " (run=" << run << ", evt=" << evt
-                << "): banks=" << ev.banks.size()
-                << ", raw_blocklets=" << raw_blocklets_decoded
-                << ", hof_hits=" << hof_hits_count
-                << ", PA_charged=" << charged_tracks.size()
-                << ", PA_neutral=" << neutrals.size()
-                << ", dst_particles=" << dst_ev.particles.size()
-                << ", E_vis=" << dst_ev.visible_energy_gev << " GeV\n";
+      std::cout << "  Event #" << (ev_idx + 1)
+                << " (run=" << res.run << ", evt=" << res.event
+                << "): banks=" << res.zebra_banks
+                << ", raw_blocklets=" << res.raw_blocklets
+                << ", hof_hits=" << res.hof_hits
+                << ", tracks=" << res.tracks_after_ambiguity
+                << "/" << res.tracks_before_ambiguity
+                << ", dst_particles=" << res.dst_event.particles.size()
+                << ", E_vis=" << res.dst_event.visible_energy_gev << " GeV\n";
     }
+    reco_outputs.push_back(std::move(res));
   }
 
   if (hm_ofs.is_open()) {
     delphipp::dst::write_hepmc3_footer(hm_ofs);
+  }
+
+  if (!opt.summary_json_path.empty()) {
+    std::ofstream sofs(opt.summary_json_path);
+    sofs << "{\n"
+         << "  \"input\": \"" << opt.input_fz_path << "\",\n"
+         << "  \"detected_zebra_fz\": " << (parsed.detected_zebra_fz ? "true" : "false") << ",\n"
+         << "  \"endianness\": \"" << (parsed.is_big_endian ? "big" : "little") << "\",\n"
+         << "  \"physical_record_words\": " << parsed.physical_record_words << ",\n"
+         << "  \"events_count\": " << reco_outputs.size() << ",\n"
+         << "  \"events\": [\n";
+    for (std::size_t i = 0; i < reco_outputs.size(); ++i) {
+      const auto& r = reco_outputs[i];
+      sofs << "    {\"index\": " << (i + 1)
+           << ", \"run\": " << r.run
+           << ", \"event\": " << r.event
+           << ", \"zebra_banks\": " << r.zebra_banks
+           << ", \"raw_blocklets\": " << r.raw_blocklets
+           << ", \"hof_hits\": " << r.hof_hits
+           << ", \"tdr\": " << r.tanagra.tdr_count()
+           << ", \"ter\": " << r.tanagra.ter_count()
+           << ", \"tkr\": " << r.tanagra.tkr_count()
+           << ", \"dst_particles\": " << r.dst_event.particles.size()
+           << ", \"visible_energy_gev\": " << r.dst_event.visible_energy_gev
+           << ", \"detectors\": {";
+      bool first_det = true;
+      for (const auto& [dname, cnt] : r.detector_blocklet_counts) {
+        if (!first_det) sofs << ", ";
+        first_det = false;
+        sofs << "\"" << dname << "\": " << cnt;
+      }
+      sofs << "}}";
+      if (i + 1 < reco_outputs.size()) sofs << ',';
+      sofs << '\n';
+    }
+    sofs << "  ]\n}\n";
   }
 
   std::string out_payload;
@@ -455,7 +342,6 @@ int run_fz_file_reco(const CliOptions& opt,
 int main(int argc, char** argv) {
   const CliOptions opt = parse_cli(argc, argv);
 
-  // Condition DB (94D TPC ABST0 correction)
   delphipp::db::ConditionDatabase cond_db;
   cond_db.add_record(delphipp::db::ConditionRecord{
       .table = "CALB",

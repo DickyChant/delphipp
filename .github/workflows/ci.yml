@@ -49,8 +49,10 @@ jobs:
           python-version: "3.12"
       - name: Syntax check tools
         run: python3 -m py_compile tools/*.py tests/*.py
-      - name: Run bank_diff unit tests
-        run: python3 -m unittest discover -s tests -p "test_*.py" -v
+      - name: Run bank_diff and cross-check unit tests
+        run: |
+          python3 -m unittest discover -s tests -p "test_*.py" -v
+          python3 -m unittest discover -s tools -p "test_*.py" -v
 
   docker-build:
     name: Verify Dev Container Image
