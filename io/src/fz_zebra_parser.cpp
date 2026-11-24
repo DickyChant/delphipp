@@ -214,6 +214,13 @@ void scan_banks_in_words(const std::vector<std::int32_t>& words,
   }
 
   flush_cur();
+  if (result.events.empty() && !result.preamble_banks.empty()) {
+    ParsedFzEvent fallback_ev;
+    fallback_ev.event_number = 1;
+    fallback_ev.banks = std::move(result.preamble_banks);
+    result.preamble_banks.clear();
+    result.events.push_back(std::move(fallback_ev));
+  }
   if (max_events > 0 && result.events.size() > max_events) {
     result.events.resize(max_events);
   }

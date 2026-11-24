@@ -3,8 +3,7 @@ C SPDX-License-Identifier: GPL-3.0-or-later
 C
 C Standalone Fortran 77 / CERNLIB ZEBRA FZ reference dumper.
 C Reads an uncompressed DELPHI .fadsim / .sdst FZ file via CFOPEN+FZFILE('DL')
-C and prints event headers and top-level / daughter ZEBRA bank hierarchies
-C for direct side-by-side comparison with delphipp_fz_inspect & delphipp_reco.
+C with LREC=3840 (DELPHI default) and automatic fallback to LREC=900.
 C
       PROGRAM FZDUMP
       IMPLICIT NONE
@@ -22,47 +21,57 @@ C
       INTEGER LSUP
 
       INTEGER IXSTOR, LUN, LREC, ISTAT, NUH, NEVT, NBANK, ND, NL, NS
-      INTEGER L, J, LL, NRUN, IEVT, NARGS
+      INTEGER L, J, LL, NRUN, IEVT, NARGS, NTRY, FLEN, HANDL
       INTEGER IUHEAD(100)
       CHARACTER*256 FNAME
+      CHARACTER*32 CLREC
       CHARACTER*4 CHIDH, CHSUB
 
       NARGS = IARGC()
       IF (NARGS .LT. 1) THEN
-         WRITE(*,'(A)') 'Usage: fortran_fz_dump <file.fadsim|file.sdst>'
+         WRITE(*,'(A)') 'Usage: fortran_fz_dump <file> [lrec]'
          STOP 2
       ENDIF
       CALL GETARG(1, FNAME)
+      FLEN = LEN_TRIM(FNAME)
+      LREC = 3840
+      IF (NARGS .GE. 2) THEN
+         CALL GETARG(2, CLREC)
+         READ(CLREC, *) LREC
+      ENDIF
 
       CALL MZEBRA(-1)
       CALL MZSTOR(IXSTOR, '//', ' ', FENCE, LQ, LQ, LQ,
      +            LQ(2000), LQ(NW))
       CALL MZLINK(IXSTOR, '/FZLNK/', LSUP, LSUP, LSUP)
 
-      LUN  = 11
-      LREC = 900
-      CALL CFOPEN(IQUEST(1), 0, LREC, 'r ', 0, FNAME, ISTAT)
+      WRITE(*,'(A,A)') '=== FORTRAN CERNLIB FZ DUMP: ',
+     +     FNAME(1:FLEN)
+
+      NTRY = 0
+ 5    CONTINUE
+      NTRY = NTRY + 1
+      LUN = 11
+      IQUEST(1) = 0
+      CALL CFOPEN(HANDL, 0, LREC, 'r ', 0, FNAME(1:FLEN), ISTAT)
       IF (ISTAT .NE. 0) THEN
          WRITE(*,'(A,I6,1X,A)') 'CFOPEN failed ISTAT=', ISTAT,
-     +        FNAME(1:LEN_TRIM(FNAME))
+     +        FNAME(1:FLEN)
          STOP 1
       ENDIF
+      IQUEST(1) = HANDL
       CALL FZFILE(LUN, LREC, 'DL')
-
-      WRITE(*,'(A,A)') '=== FORTRAN CERNLIB FZ DUMP: ',
-     +     FNAME(1:LEN_TRIM(FNAME))
 
       NEVT = 0
  10   CONTINUE
          NUH = 100
          LSUP = 0
-         CALL FZIN(LUN, IXSTOR, LSUP, 1, ' ', NUH, IUHEAD)
+         CALL FZIN(LUN, 0, LSUP, 1, ' ', NUH, IUHEAD)
          IF (IQUEST(1) .LT. 0) THEN
             WRITE(*,'(A,I6)') 'FZIN read error IQUEST(1)=', IQUEST(1)
             GOTO 90
          ELSEIF (IQUEST(1) .EQ. 1) THEN
-            WRITE(*,'(A,I8)') '  [Start-of-Run] IQUEST(1)=1 hdr=',
-     +           IUHEAD(1)
+            WRITE(*,'(A,I8)') '  [Start-of-Run] hdr=', IUHEAD(1)
             GOTO 10
          ELSEIF (IQUEST(1) .EQ. 2) THEN
             WRITE(*,'(A)') '  [End-of-Run]'
@@ -75,6 +84,8 @@ C
          NRUN = 0
          IEVT = 0
          NBANK = 0
+         CHIDH = 'NONE'
+         ND = 0
          IF (LSUP .NE. 0) THEN
             CALL UHTOC(IQ(LSUP - 4), 4, CHIDH, 4)
             ND = IQ(LSUP - 1)
@@ -85,10 +96,6 @@ C
                NRUN = IUHEAD(1)
                IEVT = IUHEAD(2)
             ENDIF
-            WRITE(*,'(A,I4,A,I6,A,I6,A,A4,A,I5)')
-     +           '  EVT #', NEVT, ' run=', NRUN, ' evt=', IEVT,
-     +           ' top=', CHIDH, ' nd=', ND
-
             L = LSUP
  20         IF (L .NE. 0) THEN
                NBANK = NBANK + 1
@@ -102,7 +109,8 @@ C
                      IF (NEVT .LE. 3) THEN
                         WRITE(*,'(A,I2,A,A4,A,I6,A,I4,A,I4)')
      +                       '    link[', J, ']=', CHSUB,
-     +                       ' nd=', IQ(LL - 1), ' nl=', IQ(LL - 3),
+     +                       ' nd=', IQ(LL - 1),
+     +                       ' nl=', IQ(LL - 3),
      +                       ' ns=', IQ(LL - 2)
                      ENDIF
                   ENDIF
@@ -110,13 +118,22 @@ C
                L = LQ(L)
                GOTO 20
             ENDIF
+            WRITE(*,'(A,I4,A,I6,A,I6,A,A4,A,I5,A,I5)')
+     +           '  EVT #', NEVT, ' run=', NRUN, ' evt=', IEVT,
+     +           ' top=', CHIDH, ' nd=', ND, ' banks=', NBANK
          ENDIF
-         CALL MZWIPE(IXSTOR)
+         CALL MZWIPE(0)
          GOTO 10
 
  90   CONTINUE
       CALL FZENDI(LUN, 'TX')
-      WRITE(*,'(A,I6)') 'Total events read by CERNLIB FZIN: ', NEVT
+      IF (NEVT .EQ. 0 .AND. NTRY .EQ. 1 .AND. LREC .EQ. 3840) THEN
+         WRITE(*,'(A)') '  Retrying with LREC=900...'
+         LREC = 900
+         GOTO 5
+      ENDIF
+      WRITE(*,'(A,I6,A,I5)') 'Total events read by CERNLIB FZIN: ',
+     +     NEVT, ' LREC=', LREC
       IF (NEVT .LE. 0) THEN
          STOP 1
       ENDIF
