@@ -24,6 +24,7 @@ endif()
 
 add_subdirectory(core)
 add_subdirectory(db)
+add_subdirectory(io)
 add_subdirectory(reco)
 add_subdirectory(legacy)
 

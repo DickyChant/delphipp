@@ -16,3 +16,11 @@ add_test(NAME db_condition_db COMMAND test_condition_db)
 add_executable(test_mus test_mus.cpp)
 target_link_libraries(test_mus PRIVATE delphipp::reco::mus)
 add_test(NAME reco_mus COMMAND test_mus)
+
+add_executable(test_fz_exchange test_fz_exchange.cpp)
+target_link_libraries(test_fz_exchange PRIVATE delphipp::io)
+add_test(NAME io_fz_exchange COMMAND test_fz_exchange)
+
+add_executable(test_muf test_muf.cpp)
+target_link_libraries(test_muf PRIVATE delphipp::reco::muf)
+add_test(NAME reco_muf COMMAND test_muf)

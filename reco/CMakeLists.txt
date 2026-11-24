@@ -3,3 +3,4 @@
 
 add_subdirectory(hof)
 add_subdirectory(mus)
+add_subdirectory(muf)
