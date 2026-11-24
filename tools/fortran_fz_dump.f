@@ -80,48 +80,54 @@ C
             GOTO 90
          ENDIF
 
+         IF (LSUP .EQ. 0) THEN
+            WRITE(*,'(A,I5)') '  [Pilot-only record] nuh=', NUH
+            GOTO 10
+         ENDIF
+
          NEVT = NEVT + 1
          NRUN = 0
          IEVT = 0
          NBANK = 0
-         CHIDH = 'NONE'
-         ND = 0
-         IF (LSUP .NE. 0) THEN
-            CALL UHTOC(IQ(LSUP - 4), 4, CHIDH, 4)
-            ND = IQ(LSUP - 1)
-            IF (CHIDH .EQ. 'HEAD' .AND. ND .GE. 5) THEN
-               NRUN = IQ(LSUP + 4)
-               IEVT = IQ(LSUP + 5)
-            ELSEIF (NUH .GE. 2) THEN
-               NRUN = IUHEAD(1)
-               IEVT = IUHEAD(2)
-            ENDIF
-            L = LSUP
- 20         IF (L .NE. 0) THEN
-               NBANK = NBANK + 1
-               NL = IQ(L - 3)
-               NS = IQ(L - 2)
-               DO 30 J = 1, NS
-                  LL = LQ(L - J)
-                  IF (LL .NE. 0) THEN
-                     NBANK = NBANK + 1
-                     CALL UHTOC(IQ(LL - 4), 4, CHSUB, 4)
-                     IF (NEVT .LE. 3) THEN
-                        WRITE(*,'(A,I2,A,A4,A,I6,A,I4,A,I4)')
-     +                       '    link[', J, ']=', CHSUB,
-     +                       ' nd=', IQ(LL - 1),
-     +                       ' nl=', IQ(LL - 3),
-     +                       ' ns=', IQ(LL - 2)
-                     ENDIF
-                  ENDIF
- 30            CONTINUE
-               L = LQ(L)
-               GOTO 20
-            ENDIF
-            WRITE(*,'(A,I4,A,I6,A,I6,A,A4,A,I5,A,I5)')
-     +           '  EVT #', NEVT, ' run=', NRUN, ' evt=', IEVT,
-     +           ' top=', CHIDH, ' nd=', ND, ' banks=', NBANK
+         CALL UHTOC(IQ(LSUP - 4), 4, CHIDH, 4)
+         ND = IQ(LSUP - 1)
+         IF (NUH .GE. 9) THEN
+            NRUN = IUHEAD(6)
+            IEVT = IUHEAD(9)
+         ELSEIF (CHIDH .EQ. 'HEAD' .AND. ND .GE. 5) THEN
+            NRUN = IQ(LSUP + 4)
+            IEVT = IQ(LSUP + 5)
+         ELSEIF (NUH .GE. 2) THEN
+            NRUN = IUHEAD(1)
+            IEVT = IUHEAD(2)
          ENDIF
+
+         L = LSUP
+ 20      IF (L .NE. 0) THEN
+            NBANK = NBANK + 1
+            NL = IQ(L - 3)
+            NS = IQ(L - 2)
+            DO 30 J = 1, NS
+               LL = LQ(L - J)
+               IF (LL .NE. 0) THEN
+                  NBANK = NBANK + 1
+                  CALL UHTOC(IQ(LL - 4), 4, CHSUB, 4)
+                  IF (NEVT .LE. 3 .AND. J .LE. 12) THEN
+                     WRITE(*,'(A,I2,A,A4,A,I7,A,I4,A,I4)')
+     +                    '    link[', J, ']=', CHSUB,
+     +                    ' nd=', IQ(LL - 1),
+     +                    ' nl=', IQ(LL - 3),
+     +                    ' ns=', IQ(LL - 2)
+                  ENDIF
+               ENDIF
+ 30         CONTINUE
+            L = LQ(L)
+            GOTO 20
+         ENDIF
+
+         WRITE(*,'(A,I5,A,I8,A,I8,A,A4,A,I7,A,I6)')
+     +        '  EVT #', NEVT, ' run=', NRUN, ' evt=', IEVT,
+     +        ' top=', CHIDH, ' nd=', ND, ' banks=', NBANK
          CALL MZWIPE(0)
          GOTO 10
 

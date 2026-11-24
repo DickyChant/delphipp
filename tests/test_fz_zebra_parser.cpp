@@ -150,6 +150,69 @@ int main() {
     assert(zs_view.bank_nd(heads.at("EGRA")) == 8);
   }
 
+  // 3. Test real DELPHI top-level delimiters: DTOP (SDST) and RUN + TOP (FADSIM)
+  auto run_raw_bank_test = [&](auto build_fn) {
+    const std::size_t phys_words = 64;
+    std::vector<std::uint32_t> raw_words;
+    for (const auto sw : kFzSyncWords) raw_words.push_back(sw);
+    raw_words.push_back(static_cast<std::uint32_t>(phys_words));
+    raw_words.push_back(0u);
+    raw_words.push_back(0u);
+    raw_words.push_back(8u);
+
+    auto append_bank = [&](const char idh[4], std::int32_t nl, std::int32_t ns,
+                           const std::vector<std::int32_t>& data) {
+      raw_words.push_back(1u);
+      raw_words.push_back(static_cast<std::uint32_t>(ascii_to_word(idh)));
+      raw_words.push_back(static_cast<std::uint32_t>(nl));
+      raw_words.push_back(static_cast<std::uint32_t>(ns));
+      raw_words.push_back(static_cast<std::uint32_t>(data.size()));
+      raw_words.push_back(0u);
+      for (std::int32_t d : data) raw_words.push_back(static_cast<std::uint32_t>(d));
+    };
+
+    build_fn(append_bank);
+    while (raw_words.size() < phys_words) raw_words.push_back(0u);
+
+    std::string bytes(raw_words.size() * 4, '\0');
+    for (std::size_t i = 0; i < raw_words.size(); ++i) {
+      const std::uint32_t v = raw_words[i];
+      bytes[i * 4 + 0] = static_cast<char>((v >> 24) & 0xFFu);
+      bytes[i * 4 + 1] = static_cast<char>((v >> 16) & 0xFFu);
+      bytes[i * 4 + 2] = static_cast<char>((v >> 8) & 0xFFu);
+      bytes[i * 4 + 3] = static_cast<char>(v & 0xFFu);
+    }
+    std::istringstream fz(bytes, std::ios::binary);
+    return parse_fz_stream(fz);
+  };
+
+  {
+    const auto parsed = run_raw_bank_test([](auto& append_bank) {
+      append_bank("DTOP", 41, 41, {940526, 120000, 314, 0, 0});
+      append_bank("PV  ", 2, 1, {0, 2, 0, 0, 0, 0, 0});
+      append_bank("DTOP", 41, 41, {940526, 120001, 314, 0, 0});
+      append_bank("PV  ", 2, 1, {0, 3, 0, 0, 0, 0, 0});
+    });
+    assert(parsed.events.size() == 2);
+    assert(parsed.events[0].find_first("DTOP") != nullptr);
+    assert(parsed.events[1].find_first("PV  ") != nullptr);
+  }
+
+  {
+    const auto parsed = run_raw_bank_test([](auto& append_bank) {
+      append_bank("RUN ", 3, 3, {47014, 1, 2});
+      append_bank("TOP ", 7, 7, {1});
+      append_bank("RAW ", 22, 22, {1, 2});
+      append_bank("TOP ", 7, 7, {2});
+      append_bank("RAW ", 22, 22, {3, 4});
+    });
+    assert(parsed.preamble_banks.size() == 1);
+    assert(parsed.preamble_banks[0].idh == "RUN ");
+    assert(parsed.events.size() == 2);
+    assert(parsed.events[0].find_first("RAW ") != nullptr);
+    assert(parsed.events[1].find_first("RAW ") != nullptr);
+  }
+
   std::cout << "test_fz_zebra_parser: PASS\n";
   return 0;
 }

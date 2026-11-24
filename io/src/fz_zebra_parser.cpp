@@ -76,7 +76,8 @@ const std::unordered_set<std::string>& known_bank_priority_set() {
       "MUID", "ELID", "HAID", "BTAG", "SIMU", "EVHD", "RUNH", "TX  ",
       "TV  ", "VD  ", "TPC ", "ID  ", "OD  ", "HPC ", "HAC ", "MUF ",
       "MUB ", "MUS ", "EMF ", "TOF ", "SAT ", "STC ", "RIC ", "FCA ",
-      "FCB ", "RAW ", "DST ",
+      "FCB ", "RAW ", "DST ", "DTOP", "TOP ", "MINI", "RUN ", "RAWH",
+      "RAWD", "TRG ", "TRGH", "SH  ", "TEVS", "TIOD", "CORR",
   };
   return kKnown;
 }
@@ -165,16 +166,7 @@ void scan_banks_in_words(const std::vector<std::int32_t>& words,
                          bool big_endian,
                          std::size_t max_events,
                          FzParseResult& result) {
-  std::optional<ParsedFzEvent> cur_event;
-  std::int32_t seq_event = 1;
-
-  auto flush_cur = [&]() {
-    if (cur_event.has_value()) {
-      result.events.push_back(std::move(*cur_event));
-      cur_event.reset();
-    }
-  };
-
+  std::vector<ParsedZebraBank> all_banks;
   for (std::size_t p = 0; p + 6 <= words.size();) {
     const std::uint32_t idh_u = static_cast<std::uint32_t>(words[p + 1]);
     const std::int32_t nl = words[p + 2];
@@ -186,25 +178,9 @@ void scan_banks_in_words(const std::vector<std::int32_t>& words,
       if (const auto idh = decode_hollerith_word(idh_u, big_endian)) {
         // Require either a known bank ID or at least 1 word/link so plain integers don't false-match
         if (known_bank_priority_set().contains(*idh) || nd > 0 || nl > 0) {
-          ParsedZebraBank bank = make_bank_at(words, p, *idh);
+          all_banks.push_back(make_bank_at(words, p, *idh));
           ++result.total_banks;
           ++result.bank_counts[*idh];
-
-          if (*idh == "HEAD") {
-            flush_cur();
-            if (max_events > 0 && result.events.size() >= max_events) {
-              return;
-            }
-            cur_event = ParsedFzEvent{};
-            cur_event->event_number = seq_event++;
-            update_event_header_from_head(bank, *cur_event);
-            cur_event->banks.push_back(std::move(bank));
-          } else if (cur_event.has_value()) {
-            cur_event->banks.push_back(std::move(bank));
-          } else {
-            result.preamble_banks.push_back(std::move(bank));
-          }
-
           p += 6 + static_cast<std::size_t>(nd);
           continue;
         }
@@ -213,14 +189,56 @@ void scan_banks_in_words(const std::vector<std::int32_t>& words,
     ++p;
   }
 
-  flush_cur();
-  if (result.events.empty() && !result.preamble_banks.empty()) {
-    ParsedFzEvent fallback_ev;
-    fallback_ev.event_number = 1;
-    fallback_ev.banks = std::move(result.preamble_banks);
-    result.preamble_banks.clear();
-    result.events.push_back(std::move(fallback_ev));
+  std::string delimiter;
+  if (result.bank_counts.contains("DTOP")) {
+    delimiter = "DTOP";
+  } else if (result.bank_counts.contains("MINI")) {
+    delimiter = "MINI";
+  } else if (result.bank_counts.contains("TOP ")) {
+    delimiter = "TOP ";
+  } else if (result.bank_counts.contains("HEAD")) {
+    delimiter = "HEAD";
   }
+
+  if (delimiter.empty()) {
+    if (!all_banks.empty()) {
+      ParsedFzEvent fallback_ev;
+      fallback_ev.event_number = 1;
+      fallback_ev.banks = std::move(all_banks);
+      result.events.push_back(std::move(fallback_ev));
+    }
+    return;
+  }
+
+  std::optional<ParsedFzEvent> cur_event;
+  std::int32_t seq_event = 1;
+  auto flush_cur = [&]() {
+    if (cur_event.has_value()) {
+      result.events.push_back(std::move(*cur_event));
+      cur_event.reset();
+    }
+  };
+
+  for (auto& bank : all_banks) {
+    if (bank.idh == delimiter) {
+      flush_cur();
+      if (max_events > 0 && result.events.size() >= max_events) {
+        return;
+      }
+      cur_event = ParsedFzEvent{};
+      cur_event->event_number = seq_event++;
+      if (delimiter == "HEAD") {
+        update_event_header_from_head(bank, *cur_event);
+      }
+      cur_event->banks.push_back(std::move(bank));
+    } else if (cur_event.has_value()) {
+      cur_event->banks.push_back(std::move(bank));
+    } else {
+      result.preamble_banks.push_back(std::move(bank));
+    }
+  }
+
+  flush_cur();
   if (max_events > 0 && result.events.size() > max_events) {
     result.events.resize(max_events);
   }
