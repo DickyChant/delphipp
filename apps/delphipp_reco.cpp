@@ -27,6 +27,7 @@ int main(int argc, char** argv) {
   std::string out_json_path;
   std::int32_t run_number = 47014;
   std::int32_t event_number = 1;
+  bool verbose = false;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -36,6 +37,8 @@ int main(int argc, char** argv) {
       run_number = std::stoi(argv[++i]);
     } else if (arg == "--event" && i + 1 < argc) {
       event_number = std::stoi(argv[++i]);
+    } else if (arg == "--verbose" || arg == "-v") {
+      verbose = true;
     }
   }
 
@@ -142,10 +145,23 @@ int main(int argc, char** argv) {
 
   // 5. Emit bank_diff.py-compatible JSON
   const std::string json = store.to_bank_diff_json(run_number, event_number);
+  if (verbose) {
+    const auto b_yoke = bfield.evaluate({350.0f, 0.0f, 100.0f});
+    std::cout << "=== DELPHI++ Reco Summary (run=" << run_number
+              << ", event=" << event_number << ") ===\n"
+              << "  CondDB 94D TPC ABST0   : " << abst0.value_or(0.0f) << " time bins\n"
+              << "  UFIELD center Bz       : " << b0.bz_tesla() << " T\n"
+              << "  UFIELD yoke(350,0,100) : Bz=" << b_yoke.bz_tesla() << " T\n"
+              << "  TanagraStore banks     : " << store.tdr_count() << " TDR, "
+              << store.ter_count() << " TER\n"
+              << "  FZ Exchange round-trip : OK (header run=" << fz_rec->user_header[0]
+              << ", evt=" << fz_rec->user_header[1] << ")\n"
+              << "  Bank JSON              : " << json << '\n';
+  }
   if (!out_json_path.empty()) {
     std::ofstream ofs(out_json_path);
     ofs << json << '\n';
-  } else {
+  } else if (!verbose) {
     std::cout << json << '\n';
   }
   return 0;

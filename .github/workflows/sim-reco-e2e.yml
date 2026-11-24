@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2026 DELPHI++ Contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Self-contained 10-event DELPHI simulation -> raw -> DELPHI++ inspection & reco
-# end-to-end pipeline using delphi-fullDST-edm4hep/delphi-sim-pipeline.
+# Self-contained 10-event DELPHI simulation -> raw (fadsim) + DST (fadana/sdst)
+# -> DELPHI++ ZEBRA FZ inspection & reconstruction E2E pipeline.
+# No continue-on-error: every step must genuinely succeed and log verbose output.
 
 name: Sim-to-Reco E2E (10 events)
 
@@ -22,7 +23,7 @@ on:
 
 jobs:
   sim-and-reco:
-    name: Generate 10 DELSIM events -> Inspect & Reco with DELPHI++
+    name: Generate 10 DELSIM events (up to raw) -> Inspect & Reco with DELPHI++
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +35,8 @@ jobs:
 
       - name: Warm up CVMFS mounts
         run: |
-          ls /cvmfs/opendata.cern.ch/ | head -5 || true
-          ls /cvmfs/delphi.cern.ch/   | head -5 || true
+          ls -la /cvmfs/opendata.cern.ch/ | head -10 || true
+          ls -la /cvmfs/delphi.cern.ch/   | head -10 || true
 
       - name: Build DELPHI++ (C++20)
         run: |
@@ -43,36 +44,95 @@ jobs:
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           cmake --build build
 
-      - name: Pull delphi-sim-pipeline container and generate 10 events up to raw/DST
-        id: sim
-        continue-on-error: true
+      - name: Generate 10 real DELPHI events up to raw (fadsim) + full/short DST
         run: |
+          set -euo pipefail
           NEV="${{ github.event.inputs.nevents || '10' }}"
-          IMAGE="ghcr.io/delphi-fulldst-edm4hep/delphi-sim-pipeline:latest"
+          PYTHIA_NEV=$((NEV + 5))
+          IMAGE="docker.io/jingyucms/delphi-sim:latest"
           mkdir -p "$PWD/sim_out"
+          chmod 777 "$PWD/sim_out"
+
+          echo "=== Pulling public DELPHI simulation image: $IMAGE ==="
           docker pull "$IMAGE"
+
+          echo "=== Running Pythia8 ($PYTHIA_NEV evts) -> DELSIM/DELANA ($NEV evts), preserving simana.fadsim (raw) ==="
           docker run --rm \
             -v /cvmfs:/cvmfs:ro \
             -v "$PWD/sim_out:/work/output" \
+            --entrypoint bash \
             "$IMAGE" \
-            "$NEV" delphipp_e2e /work/output
-          ls -lh "$PWD/sim_out"
+            -c "
+              set -euo pipefail
+              export PATH='/root/.local/bin:/root/bin:/delphi/releases/almalinux-9-x86_64/latest/scripts:/delphi/scripts:/delphi/releases/almalinux-9-x86_64/latest/bin:/delphi/releases/almalinux-9-x86_64/latest/cern/pro/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:.'
+              export OPGS_RUN_TIME='/delphi/releases/almalinux-9-x86_64/latest/delgra/run_time'
+              export DELPHI_RELEASE='latest'
+              export CERN_ROOT='/delphi/releases/almalinux-9-x86_64/latest/cern/pro'
+              export DELPHI_PAM='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/src/car'
+              export DELPHI_DDB_BIN='/delphi/releases/almalinux-9-x86_64/latest/ddb/bin'
+              export DELPHI='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018'
+              export GROUPPATH='/delphi/releases/almalinux-9-x86_64/latest/bin'
+              export CERN_PAM='/delphi/releases/almalinux-9-x86_64/latest/cern/pro/src/car'
+              export DELPHI_LIB='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/lib'
+              export DES_HOME='/delphi/releases/almalinux-9-x86_64/latest/evserv'
+              export CERN='/delphi/releases/almalinux-9-x86_64/latest/cern'
+              export CERN_LIB='/delphi/releases/almalinux-9-x86_64/latest/cern/pro/lib'
+              export DELPHI_BATCAVE='/delphi/pdl'
+              export OPENPHIGS='/delphi/releases/almalinux-9-x86_64/latest/openphigs'
+              export DELPHI_BLKD='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/blkd'
+              export DELPHI_ZIP='on'
+              export DELPHI_XRD=''
+              export DELPHI_DATA_ROOT='/eos/opendata/delphi'
+              export GRA_PLACE='/delphi/releases/almalinux-9-x86_64/latest/delgra'
+              export DELPHI_CRA='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/src/car'
+              export DELSIM_ROOT='/delphi/releases/almalinux-9-x86_64/latest/simana'
+              export DELPHI_PATH='/delphi/releases/almalinux-9-x86_64/latest/bin'
+              export DELPHI_DAT='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/dat'
+              export GROUP_DIR='/delphi/releases/almalinux-9-x86_64/latest'
+              export DELPHI_DDB='/eos/opendata/delphi/condition-data'
+              export DELPHI_DDB_DIR='/delphi/releases/almalinux-9-x86_64/latest/ddb'
+              export ADDLIB='/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/blkd/delblkd.o'
+              export DELPHI_INSTALL_DIR='/delphi'
+              export DELPHI_BIN='/delphi/releases/almalinux-9-x86_64/latest/bin'
+              export PYTHIA8DATA='/usr/share/Pythia8/xmldoc'
+              export LD_LIBRARY_PATH='/usr/lib64:/lib64'
 
-      - name: Inspect generated DELPHI FZ files with delphipp_fz_inspect
+              cd /work
+              ./pythia8_generate ${PYTHIA_NEV}
+              mv fort.26 my_events.fadgen
+              ls -lh my_events.fadgen
+
+              runsim -VERSION v94c -LABO CERN -NRUN 47014 -EBEAM 45.625 -NEVMAX ${NEV} -gext my_events.fadgen
+
+              echo '=== Files produced in /work ==='
+              ls -lh simana.* 2>&1 || true
+              for f in simana.fadsim simana.fadana simana.sdst; do
+                if [ -f \"\$f\" ]; then
+                  cp \"\$f\" \"/work/output/\$f\"
+                fi
+              done
+            "
+
+          echo "=== Output files collected in sim_out/ ==="
+          ls -lh "$PWD/sim_out"
+          test -s "$PWD/sim_out/simana.fadsim" || test -s "$PWD/sim_out/simana.sdst"
+
+      - name: Inspect real DELSIM raw/DST FZ files with delphipp_fz_inspect
         run: |
+          set -euo pipefail
           mkdir -p "$PWD/e2e_reports"
-          FOUND=0
-          for f in "$PWD"/sim_out/*.fadsim "$PWD"/sim_out/*.fadana "$PWD"/sim_out/*.sdst "$PWD"/sim_out/*.fz; do
+          INSPECTED=0
+          for f in "$PWD"/sim_out/simana.fadsim "$PWD"/sim_out/simana.fadana "$PWD"/sim_out/simana.sdst; do
             [ -f "$f" ] || continue
-            FOUND=1
+            INSPECTED=$((INSPECTED + 1))
             base="$(basename "$f")"
-            echo "=== Inspecting $base ==="
-            ./build/apps/delphipp_fz_inspect "$f" | tee "$PWD/e2e_reports/${base}.json" || true
+            echo "========================================"
+            echo "Inspecting real DELPHI file: $base ($(stat -c%s "$f") bytes)"
+            echo "========================================"
+            ./build/apps/delphipp_fz_inspect "$f" | tee "$PWD/e2e_reports/${base}.json"
           done
-          if [ "$FOUND" -eq 0 ]; then
-            echo "No DELSIM FZ files produced (check sim step logs); running synthetic self-check."
-          fi
-          ./build/apps/delphipp_reco --run 47014 --event 1 --out "$PWD/e2e_reports/delphipp_reco.json"
+          test "$INSPECTED" -gt 0
+          ./build/apps/delphipp_reco --run 47014 --event 1 --verbose --out "$PWD/e2e_reports/delphipp_reco.json"
 
       - name: Upload E2E inspection & reco reports
         uses: actions/upload-artifact@v4
