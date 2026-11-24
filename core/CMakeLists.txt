@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(delphipp_core STATIC
+  src/tanagra_store.cpp
   src/zebra_store.cpp
 )
 add_library(delphipp::core ALIAS delphipp_core)

@@ -24,3 +24,11 @@ add_test(NAME io_fz_exchange COMMAND test_fz_exchange)
 add_executable(test_muf test_muf.cpp)
 target_link_libraries(test_muf PRIVATE delphipp::reco::muf)
 add_test(NAME reco_muf COMMAND test_muf)
+
+add_executable(test_tanagra_store test_tanagra_store.cpp)
+target_link_libraries(test_tanagra_store PRIVATE delphipp::core)
+add_test(NAME tanagra_store COMMAND test_tanagra_store)
+
+add_executable(test_mub test_mub.cpp)
+target_link_libraries(test_mub PRIVATE delphipp::reco::mub)
+add_test(NAME reco_mub COMMAND test_mub)
