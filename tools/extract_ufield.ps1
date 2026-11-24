@@ -77,7 +77,9 @@ $bzen = Concat-Arrays @('BZEN01','BZEN02','BZEN03','BZEN04','BZEN05','BZEN06')
 
 function Fmt-Float([string]$s) {
   $v = [double]::Parse($s, [Globalization.CultureInfo]::InvariantCulture)
-  return ($v.ToString("G7", [Globalization.CultureInfo]::InvariantCulture) + "f")
+  $t = $v.ToString("G7", [Globalization.CultureInfo]::InvariantCulture)
+  if ($t -notmatch '[.eE]') { $t += '.0' }
+  return ($t + "f")
 }
 
 $sb = New-Object System.Text.StringBuilder
