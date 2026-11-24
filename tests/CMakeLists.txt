@@ -72,3 +72,7 @@ add_test(NAME reco_trackers_wave2 COMMAND test_trackers_wave2)
 add_executable(test_rich_vertex_dst test_rich_vertex_dst.cpp)
 target_link_libraries(test_rich_vertex_dst PRIVATE delphipp::dst delphipp::reco::rich delphipp::reco::tracking)
 add_test(NAME reco_rich_vertex_dst COMMAND test_rich_vertex_dst)
+
+add_executable(test_kalman_and_plumbing test_kalman_and_plumbing.cpp)
+target_link_libraries(test_kalman_and_plumbing PRIVATE delphipp::core delphipp::db delphipp::io delphipp::reco::tracking)
+add_test(NAME kalman_and_plumbing COMMAND test_kalman_and_plumbing)

@@ -5,6 +5,7 @@
 
 #include <array>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace delphipp::db {
 
@@ -74,7 +75,75 @@ std::optional<KapackBlock> KapackReader::read_block(std::int32_t block_num) {
     blk.words[i] = read_le32(raw.data() + i * 4);
   }
   blk.block_number = blk.words[0];
+  blk.tree_level = blk.words[4];
+  blk.first_entry = blk.words[5];
+  blk.next_free_word = blk.words[6];
   return blk;
+}
+
+std::vector<KapackEntry> KapackReader::parse_block_entries(const KapackBlock& blk) {
+  std::vector<KapackEntry> out;
+  const auto nwords = static_cast<std::int32_t>(blk.words.size());
+  std::int32_t loc = blk.first_entry;  // 1-based (IA(6))
+  const std::int32_t limit = std::min(blk.next_free_word, nwords + 1);
+
+  if (loc <= 6 || loc >= limit) {
+    return out;
+  }
+
+  // Matches KAXGET: IA(LOC) = entry length, IA(LOC+1) = key length (incl. length word)
+  while (loc < limit) {
+    const std::int32_t entry_len = blk.words[static_cast<std::size_t>(loc - 1)];
+    if (entry_len < 2 || loc + entry_len > limit) {
+      break;
+    }
+    const std::int32_t key_len = blk.words[static_cast<std::size_t>(loc)];
+    if (key_len < 1 || 1 + key_len > entry_len) {
+      break;
+    }
+
+    KapackEntry entry;
+    for (std::int32_t k = 1; k < key_len; ++k) {
+      entry.key_words.push_back(blk.words[static_cast<std::size_t>(loc + k)]);
+    }
+    for (std::int32_t p = 1 + key_len; p < entry_len; ++p) {
+      entry.payload_words.push_back(blk.words[static_cast<std::size_t>(loc - 1 + p)]);
+    }
+    out.push_back(std::move(entry));
+    loc += entry_len;
+  }
+  return out;
+}
+
+std::vector<KapackEntry> KapackReader::list_leaf_entries(std::size_t max_entries) {
+  std::vector<KapackEntry> leaves;
+  std::unordered_set<std::int32_t> visited;
+
+  auto walk = [&](auto&& self, std::int32_t block_num) -> void {
+    if (leaves.size() >= max_entries || !visited.insert(block_num).second) {
+      return;
+    }
+    const auto blk = read_block(block_num);
+    if (!blk.has_value()) {
+      return;
+    }
+    auto entries = parse_block_entries(*blk);
+    if (blk->tree_level <= 1) {
+      for (auto& e : entries) {
+        if (leaves.size() >= max_entries) break;
+        leaves.push_back(std::move(e));
+      }
+    } else {
+      for (const auto& e : entries) {
+        if (!e.payload_words.empty()) {
+          self(self, e.payload_words.front());
+        }
+      }
+    }
+  };
+
+  walk(walk, header_.root_block);
+  return leaves;
 }
 
 }  // namespace delphipp::db

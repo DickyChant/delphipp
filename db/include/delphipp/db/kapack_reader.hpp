@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Pure C++20 reader for CERNLIB KAPACK v2 binary direct-access files
-// (DELPHI condition database snapshots FOR050–FOR056, see kapack600.car KAXMAK).
+// (DELPHI condition database snapshots FOR050–FOR056, see kapack600.car
+// KAXMAK & KAXGET).
 
 #pragma once
 
@@ -34,7 +35,15 @@ struct KapackFileHeader {
 
 struct KapackBlock {
   std::int32_t block_number = 0;
+  std::int32_t tree_level = 0;     // IA(5): 1 = leaf data block, >1 = index block
+  std::int32_t first_entry = 0;    // IA(6)
+  std::int32_t next_free_word = 0; // IA(7)
   std::vector<std::int32_t> words;
+};
+
+struct KapackEntry {
+  std::vector<std::int32_t> key_words;      // Packed key words (excluding length word)
+  std::vector<std::int32_t> payload_words;  // Child block pointer (level>1) or record data (level==1)
 };
 
 class KapackReader {
@@ -49,6 +58,15 @@ class KapackReader {
 
   // Reads 1-based direct-access block `block_num` (1 <= block_num <= num_blocks).
   [[nodiscard]] std::optional<KapackBlock> read_block(std::int32_t block_num);
+
+  // Parses all entries in a single KAPACK block (following KAXGET IA(6)..IA(7) chain).
+  [[nodiscard]] static std::vector<KapackEntry> parse_block_entries(
+      const KapackBlock& blk);
+
+  // Traverses the KAPACK B-tree from `header().root_block` down to level-1 leaf blocks
+  // and returns all leaf entries (up to `max_entries`).
+  [[nodiscard]] std::vector<KapackEntry> list_leaf_entries(
+      std::size_t max_entries = 100'000);
 
  private:
   std::istream& in_;

@@ -3,6 +3,7 @@
 
 add_library(delphipp_reco_tracking STATIC
   src/ambiguity_solver.cpp
+  src/kalman_fitter.cpp
   src/vertex_fitter.cpp
 )
 add_library(delphipp::reco::tracking ALIAS delphipp_reco_tracking)
