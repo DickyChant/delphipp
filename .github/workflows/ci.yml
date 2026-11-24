@@ -33,6 +33,11 @@ jobs:
         run: cmake --build build-${{ matrix.compiler.name }}
       - name: Test
         run: ctest --test-dir build-${{ matrix.compiler.name }} --output-on-failure
+      - name: End-to-end delphipp_reco + bank_diff self-check
+        run: |
+          ./build-${{ matrix.compiler.name }}/apps/delphipp_reco --run 47014 --event 1 --out run_a.json
+          ./build-${{ matrix.compiler.name }}/apps/delphipp_reco --run 47014 --event 1 --out run_b.json
+          python3 tools/bank_diff.py run_a.json run_b.json --policy tests/tolerance_policy_94d.json
 
   python-tools:
     name: Static Analyzer & Bank-Diff Suite

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(delphipp_core STATIC
+  src/helix.cpp
+  src/magnetic_field.cpp
   src/tanagra_store.cpp
   src/zebra_store.cpp
 )

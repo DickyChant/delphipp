@@ -32,3 +32,11 @@ add_test(NAME tanagra_store COMMAND test_tanagra_store)
 add_executable(test_mub test_mub.cpp)
 target_link_libraries(test_mub PRIVATE delphipp::reco::mub)
 add_test(NAME reco_mub COMMAND test_mub)
+
+add_executable(test_field_helix test_field_helix.cpp)
+target_link_libraries(test_field_helix PRIVATE delphipp::core)
+add_test(NAME core_field_helix COMMAND test_field_helix)
+
+add_executable(test_tof test_tof.cpp)
+target_link_libraries(test_tof PRIVATE delphipp::reco::tof)
+add_test(NAME reco_tof COMMAND test_tof)
