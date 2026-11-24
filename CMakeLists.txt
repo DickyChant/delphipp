@@ -23,6 +23,7 @@ if(DELPHIPP_ENABLE_LEGACY_FORTRAN)
 endif()
 
 add_subdirectory(core)
+add_subdirectory(reco)
 add_subdirectory(legacy)
 
 if(DELPHIPP_BUILD_TESTS)
