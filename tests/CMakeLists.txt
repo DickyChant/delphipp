@@ -64,3 +64,7 @@ add_test(NAME reco_had COMMAND test_had)
 add_executable(test_calorimeters_wave1 test_calorimeters_wave1.cpp)
 target_link_libraries(test_calorimeters_wave1 PRIVATE delphipp::reco::hpc delphipp::reco::stc delphipp::reco::sat)
 add_test(NAME reco_calorimeters_wave1 COMMAND test_calorimeters_wave1)
+
+add_executable(test_trackers_wave2 test_trackers_wave2.cpp)
+target_link_libraries(test_trackers_wave2 PRIVATE delphipp::reco::vd delphipp::reco::tpc delphipp::reco::id delphipp::reco::od delphipp::reco::fwd)
+add_test(NAME reco_trackers_wave2 COMMAND test_trackers_wave2)
