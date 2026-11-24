@@ -1,0 +1,10 @@
+{
+  "default_atol": 1e-5,
+  "default_rtol": 1e-4,
+  "banks": {
+    "DFIX": {
+      "comment": "DFIX carries processing date/time words that differ across runs (see simana_v94d/ddb/README.md).",
+      "ignore_words": [1, 2]
+    }
+  }
+}

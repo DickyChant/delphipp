@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 DELPHI++ Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  cpp-core:
+    name: C++20 Core (GCC & Clang)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - { name: gcc, cxx: g++ }
+          - { name: clang, cxx: clang++ }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ clang
+      - name: Configure
+        run: |
+          cmake -B build-${{ matrix.compiler.name }} -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }}
+      - name: Build
+        run: cmake --build build-${{ matrix.compiler.name }}
+      - name: Test
+        run: ctest --test-dir build-${{ matrix.compiler.name }} --output-on-failure
+
+  python-tools:
+    name: Static Analyzer & Bank-Diff Suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Syntax check tools
+        run: python3 -m py_compile tools/*.py tests/*.py
+      - name: Run bank_diff unit tests
+        run: python3 -m unittest discover -s tests -p "test_*.py" -v
+
+  docker-build:
+    name: Verify Dev Container Image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -f docker/Dockerfile -t delphipp-dev:ci .

@@ -1,0 +1,29 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+
+# Expanded Fortran artifacts
+legacy/expanded/
+*.o
+*.mod
+*.a
+*.so
+*.dylib
+*.exe
+
+# Golden / local data files
+data/
+golden/
+*.fz
+*.dst
+*.dat
+
+# Python & IDE
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.idea/
+*.swp
