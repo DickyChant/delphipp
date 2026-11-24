@@ -3,6 +3,7 @@
 
 add_library(delphipp_io STATIC
   src/fz_exchange.cpp
+  src/zebra_bank_io.cpp
 )
 add_library(delphipp::io ALIAS delphipp_io)
 

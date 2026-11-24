@@ -40,3 +40,15 @@ add_test(NAME core_field_helix COMMAND test_field_helix)
 add_executable(test_tof test_tof.cpp)
 target_link_libraries(test_tof PRIVATE delphipp::reco::tof)
 add_test(NAME reco_tof COMMAND test_tof)
+
+add_executable(test_kapack_reader test_kapack_reader.cpp)
+target_link_libraries(test_kapack_reader PRIVATE delphipp::db)
+add_test(NAME db_kapack_reader COMMAND test_kapack_reader)
+
+add_executable(test_zebra_bank_io test_zebra_bank_io.cpp)
+target_link_libraries(test_zebra_bank_io PRIVATE delphipp::io)
+add_test(NAME io_zebra_bank COMMAND test_zebra_bank_io)
+
+add_executable(test_ambiguity_solver test_ambiguity_solver.cpp)
+target_link_libraries(test_ambiguity_solver PRIVATE delphipp::reco::tracking)
+add_test(NAME reco_ambiguity_solver COMMAND test_ambiguity_solver)

@@ -3,6 +3,7 @@
 
 add_library(delphipp_db STATIC
   src/condition_db.cpp
+  src/kapack_reader.cpp
 )
 add_library(delphipp::db ALIAS delphipp_db)
 
