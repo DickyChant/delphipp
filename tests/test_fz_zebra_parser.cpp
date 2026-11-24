@@ -260,6 +260,103 @@ int main() {
     assert(parsed.events[1].find_first("RAW ") != nullptr);
   }
 
+  // 4. Test exact CERNLIB FZ Exchange logical records (check word 12345.0f, NWBK, IUHEAD)
+  {
+    const std::size_t phys_words = 256;
+    std::vector<std::uint32_t> words;
+    for (const auto sw : kFzSyncWords) words.push_back(sw);
+    words.push_back(static_cast<std::uint32_t>(phys_words));
+    words.push_back(0u);
+    words.push_back(8u);
+    words.push_back(0u);
+
+    auto append_bank_mat = [&](std::vector<std::uint32_t>& mat,
+                               const char idh[4],
+                               std::int32_t nl,
+                               std::int32_t ns,
+                               const std::vector<std::int32_t>& data) {
+      mat.push_back(0u);
+      mat.push_back(static_cast<std::uint32_t>(ascii_to_word(idh)));
+      mat.push_back(static_cast<std::uint32_t>(nl));
+      mat.push_back(static_cast<std::uint32_t>(ns));
+      mat.push_back(static_cast<std::uint32_t>(data.size()));
+      mat.push_back(0u);
+      for (std::int32_t d : data) mat.push_back(static_cast<std::uint32_t>(d));
+    };
+
+    auto append_cernlib_lr = [&](std::int32_t lrtyp,
+                                 std::int32_t lentry,
+                                 const std::vector<std::int32_t>& uh,
+                                 const std::vector<std::uint32_t>& bank_mat) {
+      const std::int32_t nwuhio = uh.empty() ? 0 : static_cast<std::int32_t>(1 + uh.size());
+      const std::int32_t nwbk = static_cast<std::int32_t>(bank_mat.size());
+      const std::int32_t nwlr = 10 + nwuhio + nwbk;
+      words.push_back(static_cast<std::uint32_t>(nwlr));
+      words.push_back(static_cast<std::uint32_t>(lrtyp));
+      words.push_back(std::bit_cast<std::uint32_t>(12345.0f));
+      words.push_back(37700u);
+      words.push_back(0u);
+      words.push_back(0u);
+      words.push_back(0u);
+      words.push_back(0u);
+      words.push_back(0u);
+      words.push_back(static_cast<std::uint32_t>(nwbk));
+      words.push_back(static_cast<std::uint32_t>(lentry));
+      words.push_back(static_cast<std::uint32_t>(nwuhio));
+      if (!uh.empty()) {
+        words.push_back(2u);
+        for (std::int32_t u : uh) words.push_back(static_cast<std::uint32_t>(u));
+      }
+      words.insert(words.end(), bank_mat.begin(), bank_mat.end());
+    };
+
+    // Pilot-only record (LENTRY=0, NWBK=0) must be skipped
+    append_cernlib_lr(2, 0, {0, 0, 0, 1, 4, -47014, 0, 0, 0}, {});
+
+    // RUN preamble record
+    {
+      std::vector<std::uint32_t> mat;
+      append_bank_mat(mat, "RUN ", 3, 3, {-47014, 1, 2});
+      append_cernlib_lr(2, 1, {0, 0, 0, 11, 4, -47014, 0, 0, 0}, mat);
+    }
+
+    // Two DTOP physics events with IUHEAD(6)=-47014, IUHEAD(9)=1,2
+    for (std::int32_t evno = 1; evno <= 2; ++evno) {
+      std::vector<std::uint32_t> mat;
+      append_bank_mat(mat, "DTOP", 41, 41, {940526, 120000 + evno, 314, 0, 0});
+      append_bank_mat(mat, "PV  ", 2, 1, {0, 1, 0, 0, 0, 0, 0});
+      append_bank_mat(mat, "PA  ", 4, 0, std::vector<std::int32_t>(20, 0));
+      append_cernlib_lr(2, 1, {0, 0, 0, 16, 4, -47014, 0, 0, evno}, mat);
+    }
+
+    // Trailing padding record (type 5)
+    words.push_back(4u);
+    words.push_back(5u);
+    while (words.size() < phys_words) words.push_back(0u);
+
+    std::string bytes(words.size() * 4, '\0');
+    for (std::size_t i = 0; i < words.size(); ++i) {
+      const std::uint32_t v = words[i];
+      bytes[i * 4 + 0] = static_cast<char>((v >> 24) & 0xFFu);
+      bytes[i * 4 + 1] = static_cast<char>((v >> 16) & 0xFFu);
+      bytes[i * 4 + 2] = static_cast<char>((v >> 8) & 0xFFu);
+      bytes[i * 4 + 3] = static_cast<char>(v & 0xFFu);
+    }
+
+    std::istringstream fz(bytes, std::ios::binary);
+    const auto parsed = parse_fz_stream(fz);
+    assert(parsed.detected_zebra_fz);
+    assert(parsed.preamble_banks.size() == 1);
+    assert(parsed.preamble_banks[0].idh == "RUN ");
+    assert(parsed.events.size() == 2);
+    assert(parsed.events[0].run_number == -47014);
+    assert(parsed.events[0].event_number == 1);
+    assert(parsed.events[0].find_first("DTOP") != nullptr);
+    assert(parsed.events[0].find_first("PV  ") != nullptr);
+    assert(parsed.events[1].run_number == -47014);
+    assert(parsed.events[1].event_number == 2);
+  }
+
   std::cout << "test_fz_zebra_parser: PASS\n";
   return 0;
 }

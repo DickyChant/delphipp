@@ -162,55 +162,24 @@ void update_event_header_from_head(const ParsedZebraBank& head,
   }
 }
 
-bool is_plausible_known_bank(const std::string& idh,
-                             std::int32_t idn,
-                             std::int32_t nl,
-                             std::int32_t ns,
-                             std::int32_t nd) noexcept {
-  if (!known_bank_priority_set().contains(idh)) {
-    return false;
-  }
-  if (idn < 0 || idn > 1'000'000 || nl < 0 || ns < 0 || ns > nl || nd < 0) {
-    return false;
-  }
-  if (idh == "DTOP") {
-    return nl >= 1 && nl <= 256 && nd >= 1 && nd <= 512;
-  }
-  if (idh == "MINI") {
-    return nl >= 1 && nl <= 256 && nd >= 1 && nd <= 1024;
-  }
-  if (idh == "TOP ") {
-    return nl == 7 && ns == 7 && nd >= 1 && nd <= 128;
-  }
-  if (idh == "HEAD") {
-    return nl <= 64 && nd >= 1 && nd <= 512;
-  }
-  if (idh == "PV  ") {
-    return nl <= 16 && nd >= 6 && nd <= 256;
-  }
-  if (idh == "PA  ") {
-    return nl <= 16 && nd >= 15 && nd <= 4096;
-  }
-  return nl <= 256 && nd <= 65536 && (nd > 0 || nl > 0);
-}
-
-void scan_banks_in_words(const std::vector<std::int32_t>& words,
-                         bool big_endian,
-                         std::size_t max_events,
-                         FzParseResult& result) {
-  std::vector<ParsedZebraBank> all_banks;
-  for (std::size_t p = 0; p + 6 <= words.size();) {
-    const std::int32_t idn = words[p];
+std::vector<ParsedZebraBank> scan_bank_material_slice(
+    const std::vector<std::int32_t>& words,
+    std::size_t begin_idx,
+    std::size_t end_idx,
+    bool big_endian,
+    FzParseResult& result) {
+  std::vector<ParsedZebraBank> banks;
+  for (std::size_t p = begin_idx; p + 6 <= end_idx;) {
     const std::uint32_t idh_u = static_cast<std::uint32_t>(words[p + 1]);
     const std::int32_t nl = words[p + 2];
     const std::int32_t ns = words[p + 3];
     const std::int32_t nd = words[p + 4];
 
-    if (nl >= 0 && nl <= 256 && ns >= 0 && ns <= nl && nd >= 0 && nd <= 65536 &&
-        p + 6 + static_cast<std::size_t>(nd) <= words.size()) {
+    if (nl >= 0 && nl <= 256 && ns >= 0 && ns <= nl && nd >= 0 &&
+        p + 6 + static_cast<std::size_t>(nd) <= end_idx) {
       if (const auto idh = decode_hollerith_word(idh_u, big_endian)) {
-        if (is_plausible_known_bank(*idh, idn, nl, ns, nd)) {
-          all_banks.push_back(make_bank_at(words, p, *idh));
+        if (known_bank_priority_set().contains(*idh) || (nd > 0 && nl <= 64)) {
+          banks.push_back(make_bank_at(words, p, *idh));
           ++result.total_banks;
           ++result.bank_counts[*idh];
           p += 6 + static_cast<std::size_t>(nd);
@@ -220,6 +189,111 @@ void scan_banks_in_words(const std::vector<std::int32_t>& words,
     }
     ++p;
   }
+  return banks;
+}
+
+bool parse_cernlib_fz_logical_records(const std::vector<std::int32_t>& words,
+                                      bool big_endian,
+                                      std::size_t max_events,
+                                      FzParseResult& result) {
+  constexpr std::uint32_t kCernlibCheckWord = 0x4640E400u;  // 12345.0f
+  std::size_t verified_records = 0;
+  std::int32_t seq_event = 1;
+
+  for (std::size_t pos = 0; pos + 12 <= words.size();) {
+    const std::int32_t nwlr = words[pos];
+    const std::int32_t lrtyp = words[pos + 1];
+    const std::uint32_t chk = static_cast<std::uint32_t>(words[pos + 2]);
+
+    if ((lrtyp == 2 || lrtyp == 3) && chk == kCernlibCheckWord) {
+      const std::int32_t nwtx = words[pos + 6];
+      const std::int32_t nwseg = words[pos + 7];
+      const std::int32_t nwtab = words[pos + 8];
+      const std::int32_t nwbk = words[pos + 9];
+      const std::int32_t lentry = words[pos + 10];
+      const std::int32_t nwuhio = words[pos + 11];
+      const std::int64_t expected_nwlr =
+          10LL + nwuhio + nwseg + nwtx + nwtab + nwbk;
+
+      if (nwlr >= 10 && nwtx >= 0 && nwseg >= 0 && nwtab >= 0 &&
+          nwbk >= 0 && nwuhio >= 0 && nwlr == expected_nwlr &&
+          pos + 2u + static_cast<std::size_t>(nwlr) <= words.size()) {
+        ++verified_records;
+        if (lentry == 0 || nwbk == 0) {
+          pos += 2u + static_cast<std::size_t>(nwlr);
+          continue;
+        }
+
+        const std::size_t uh_off = pos + 12u;
+        const std::size_t uh_len = static_cast<std::size_t>(nwuhio);
+        std::vector<std::int32_t> user_header;
+        if (uh_len > 1u) {
+          user_header.assign(words.begin() + static_cast<std::ptrdiff_t>(uh_off + 1u),
+                             words.begin() + static_cast<std::ptrdiff_t>(uh_off + uh_len));
+        }
+
+        const std::size_t bk_off = uh_off + uh_len +
+                                   static_cast<std::size_t>(nwseg) +
+                                   static_cast<std::size_t>(nwtx) +
+                                   static_cast<std::size_t>(nwtab);
+        const std::size_t bk_end = bk_off + static_cast<std::size_t>(nwbk);
+
+        auto ev_banks =
+            scan_bank_material_slice(words, bk_off, bk_end, big_endian, result);
+
+        bool has_event_top = false;
+        bool has_run_preamble = false;
+        for (const auto& b : ev_banks) {
+          if (b.idh == "DTOP" || b.idh == "MINI" || b.idh == "TOP " || b.idh == "HEAD") {
+            has_event_top = true;
+          } else if (b.idh == "RUN " || b.idh == "CORR" || b.idh == "RUNH") {
+            has_run_preamble = true;
+          }
+        }
+
+        if (has_run_preamble && !has_event_top) {
+          for (auto& b : ev_banks) {
+            result.preamble_banks.push_back(std::move(b));
+          }
+        } else if (!ev_banks.empty()) {
+          if (max_events > 0 && result.events.size() >= max_events) {
+            return true;
+          }
+          ParsedFzEvent ev;
+          ev.user_header = user_header;
+          ev.event_number = seq_event++;
+          if (user_header.size() >= 9) {
+            ev.run_number = user_header[5];
+            if (user_header[8] > 0) {
+              ev.event_number = user_header[8];
+            }
+          }
+          for (const auto& b : ev_banks) {
+            if (b.idh == "HEAD") {
+              update_event_header_from_head(b, ev);
+              break;
+            }
+          }
+          ev.banks = std::move(ev_banks);
+          result.events.push_back(std::move(ev));
+        }
+
+        pos += 2u + static_cast<std::size_t>(nwlr);
+        continue;
+      }
+    }
+    ++pos;
+  }
+
+  return verified_records > 0;
+}
+
+void scan_banks_in_words(const std::vector<std::int32_t>& words,
+                         bool big_endian,
+                         std::size_t max_events,
+                         FzParseResult& result) {
+  std::vector<ParsedZebraBank> all_banks =
+      scan_bank_material_slice(words, 0, words.size(), big_endian, result);
 
   std::string delimiter;
   if (result.bank_counts.contains("DTOP")) {
@@ -477,7 +551,12 @@ FzParseResult parse_fz_stream(std::istream& in, std::size_t max_events) {
     }
   }
 
-  // Standard CERNLIB ZEBRA FZ Exchange stream: scan unwrapped physical blocks
+  // First try exact CERNLIB ZEBRA FZ Exchange logical-record parsing (12345.0f pilot)
+  if (parse_cernlib_fz_logical_records(logical_words, big_endian, max_events, res)) {
+    return res;
+  }
+
+  // Fallback: scan unwrapped stream directly for synthetic non-pilot ZEBRA bank tests
   scan_banks_in_words(logical_words, big_endian, max_events, res);
   return res;
 }
