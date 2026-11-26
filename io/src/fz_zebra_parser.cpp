@@ -77,7 +77,7 @@ const std::unordered_set<std::string>& known_bank_priority_set() {
       "TV  ", "VD  ", "TPC ", "ID  ", "OD  ", "HPC ", "HAC ", "MUF ",
       "MUB ", "MUS ", "EMF ", "TOF ", "SAT ", "STC ", "RIC ", "FCA ",
       "FCB ", "RAW ", "DST ", "DTOP", "TOP ", "MINI", "RUN ", "RAWH",
-      "RAWD", "TRG ", "TRGH", "SH  ", "TEVS", "TIOD", "CORR",
+      "RAWD", "TRG ", "TRGH", "SH  ", "SIM_", "TEVS", "TIOD", "CORR",
   };
   return kKnown;
 }
@@ -243,12 +243,20 @@ bool parse_cernlib_fz_logical_records(const std::vector<std::int32_t>& words,
 
         bool has_event_top = false;
         bool has_run_preamble = false;
+        std::string top_bank;
         for (const auto& b : ev_banks) {
-          if (b.idh == "DTOP" || b.idh == "MINI" || b.idh == "TOP " || b.idh == "HEAD") {
+          if (b.idh == "DTOP" || b.idh == "MINI" || b.idh == "TOP " ||
+              b.idh == "SIM_" || b.idh == "HEAD") {
             has_event_top = true;
+            if (top_bank.empty()) {
+              top_bank = b.idh;
+            }
           } else if (b.idh == "RUN " || b.idh == "CORR" || b.idh == "RUNH") {
             has_run_preamble = true;
           }
+        }
+        if (top_bank.empty() && !ev_banks.empty()) {
+          top_bank = ev_banks.front().idh;
         }
 
         if (has_run_preamble && !has_event_top) {
@@ -262,15 +270,16 @@ bool parse_cernlib_fz_logical_records(const std::vector<std::int32_t>& words,
           ParsedFzEvent ev;
           ev.user_header = user_header;
           ev.event_number = seq_event++;
+          ev.top_bank = std::move(top_bank);
           if (user_header.size() >= 9) {
             ev.run_number = user_header[5];
-            if (user_header[8] > 0) {
-              ev.event_number = user_header[8];
-            }
+            ev.event_number = user_header[8];
+            ev.has_header_event_number = true;
           }
           for (const auto& b : ev_banks) {
             if (b.idh == "HEAD") {
               update_event_header_from_head(b, ev);
+              ev.has_header_event_number = true;
               break;
             }
           }

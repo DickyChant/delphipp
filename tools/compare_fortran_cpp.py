@@ -16,7 +16,7 @@ EVT_RE = re.compile(
     r"EVT\s+#\s*(\d+)\s+run=\s*(-?\d+)\s+evt=\s*(-?\d+)\s+top=(.{4}?)\s+nd=\s*(\d+)\s+banks=\s*(\d+)"
 )
 TOTAL_RE = re.compile(r"Total events read by CERNLIB FZIN:\s*(\d+)")
-EVENT_TOP_BANKS = {"DTOP", "MINI", "TOP", "HEAD"}
+NON_EVENT_BANKS = {"RUN", "CORR", "RUNH"}
 
 
 @dataclass
@@ -51,32 +51,30 @@ def parse_fortran_dump(text: str) -> tuple[list[FortranEvent], int]:
 
 def compare_reports(fortran_text: str, cpp_summary: dict[str, Any], label: str) -> tuple[bool, str]:
     f_all, f_raw_total = parse_fortran_dump(fortran_text)
-    f_phys = [e for e in f_all if e.top in EVENT_TOP_BANKS]
-    if not f_phys and f_all:
-        f_phys = f_all
-    f_other = [e for e in f_all if e not in f_phys]
-    f_total = len(f_phys) if f_phys else f_raw_total
+    f_phys = [e for e in f_all if e.top not in NON_EVENT_BANKS]
+    f_other = [e for e in f_all if e.top in NON_EVENT_BANKS]
+    f_total = len(f_phys) if f_all else f_raw_total
 
     c_events = cpp_summary.get("events", [])
     c_total = int(cpp_summary.get("events_count", len(c_events)))
 
     lines = [
         f"=== Fortran CERNLIB vs DELPHI++ C++20 Cross-Check ({label}) ===",
-        f"  Fortran FZIN records      : total={f_raw_total}, physics_events={f_total}, non_event={len(f_other)}",
+        f"  Fortran FZIN records      : total={f_raw_total}, physics_and_sim={f_total}, preamble={len(f_other)}",
         f"  C++20 FZ parser events    : {c_total} (phys_words={cpp_summary.get('physical_record_words')})",
     ]
     if f_other:
-        lines.append("  Fortran non-event banks   : " + ", ".join(f"{e.top}(nd={e.nd})" for e in f_other))
+        lines.append("  Fortran preamble banks    : " + ", ".join(f"{e.top}(nd={e.nd})" for e in f_other))
 
     ok = True
     if f_total <= 0:
-        lines.append("  FAIL: Fortran FZIN reported 0 physics events.")
+        lines.append("  FAIL: Fortran FZIN reported 0 physics/sim events.")
         ok = False
     if c_total <= 0:
         lines.append("  FAIL: DELPHI++ C++20 reported 0 events.")
         ok = False
     if f_total != c_total:
-        lines.append(f"  FAIL: Physics event count mismatch (Fortran={f_total} vs C++20={c_total}).")
+        lines.append(f"  FAIL: Record count mismatch (Fortran={f_total} vs C++20={c_total}).")
         ok = False
 
     n_cmp = min(len(f_phys), len(c_events))
@@ -84,13 +82,18 @@ def compare_reports(fortran_text: str, cpp_summary: dict[str, Any], label: str) 
         fe = f_phys[i]
         ce = c_events[i]
         c_run = int(ce.get("run", 0))
+        c_evt = int(ce.get("event", -1))
+        c_top = str(ce.get("top_bank", "")).strip() or "?"
         lines.append(
             f"  [#{i+1}] F77(run={fe.run}, evt={fe.event}, top={fe.top}, banks={fe.banks}) "
-            f"<-> C++(run={c_run}, evt={ce.get('event')}, banks={ce.get('zebra_banks')}, "
+            f"<-> C++(run={c_run}, evt={c_evt}, top={c_top}, banks={ce.get('zebra_banks')}, "
             f"blk={ce.get('raw_blocklets')}, dst={ce.get('dst_particles')}, E_vis={ce.get('visible_energy_gev')})"
         )
         if fe.run != 0 and c_run != 0 and abs(fe.run) != abs(c_run):
             lines.append(f"  FAIL: Run mismatch at #{i+1}: Fortran={fe.run} vs C++={c_run}")
+            ok = False
+        if fe.event != c_evt:
+            lines.append(f"  FAIL: Event mismatch at #{i+1}: Fortran={fe.event} vs C++={c_evt}")
             ok = False
 
     return ok, "\n".join(lines)

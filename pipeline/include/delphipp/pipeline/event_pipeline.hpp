@@ -26,6 +26,7 @@ namespace delphipp::pipeline {
 struct EventRecoOutput {
   std::int32_t run = 0;
   std::int32_t event = 0;
+  std::string top_bank;
   std::size_t zebra_banks = 0;
   std::size_t raw_blocklets = 0;
   std::int32_t hof_hits = 0;

@@ -37,6 +37,8 @@ struct ParsedZebraBank {
 struct ParsedFzEvent {
   std::int32_t run_number = 0;
   std::int32_t event_number = 0;
+  bool has_header_event_number = false;
+  std::string top_bank;
   std::vector<std::int32_t> user_header;
   std::vector<ParsedZebraBank> banks;
 

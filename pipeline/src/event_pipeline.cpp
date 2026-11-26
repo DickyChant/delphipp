@@ -84,7 +84,10 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
     std::int32_t fallback_evt) const {
   EventRecoOutput out;
   out.run = (ev.run_number != 0) ? ev.run_number : fallback_run;
-  out.event = (ev.event_number > 0) ? ev.event_number : fallback_evt;
+  out.event = ev.has_header_event_number
+                  ? ev.event_number
+                  : ((ev.event_number > 0) ? ev.event_number : fallback_evt);
+  out.top_bank = ev.top_bank;
   out.zebra_banks = ev.banks.size();
 
   const auto b0 = bfield_.evaluate({0.0f, 0.0f, 0.0f});

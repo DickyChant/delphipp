@@ -288,9 +288,14 @@ int run_fz_file_reco(const CliOptions& opt,
          << "  \"events\": [\n";
     for (std::size_t i = 0; i < reco_outputs.size(); ++i) {
       const auto& r = reco_outputs[i];
+      std::string trimmed_top = r.top_bank;
+      while (!trimmed_top.empty() && trimmed_top.back() == ' ') {
+        trimmed_top.pop_back();
+      }
       sofs << "    {\"index\": " << (i + 1)
            << ", \"run\": " << r.run
            << ", \"event\": " << r.event
+           << ", \"top_bank\": \"" << trimmed_top << "\""
            << ", \"zebra_banks\": " << r.zebra_banks
            << ", \"raw_blocklets\": " << r.raw_blocklets
            << ", \"hof_hits\": " << r.hof_hits

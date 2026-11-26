@@ -14,12 +14,14 @@ SAMPLE_SDST = """\
 Total events read by CERNLIB FZIN:      2 LREC= 3840
 """
 
-SAMPLE_FADSIM_WITH_RUN = """\
+SAMPLE_FADSIM_MIXED = """\
 === FORTRAN CERNLIB FZ DUMP: simana.fadsim
   EVT #    1 run=  -47014 evt=       0 top=RUN  nd=     71 banks=     1
-  EVT #    2 run=  -47014 evt=       1 top=TOP  nd=      1 banks=    18
-  EVT #    3 run=  -47014 evt=       2 top=TOP  nd=      1 banks=    19
-Total events read by CERNLIB FZIN:      3 LREC= 3840
+  EVT #    2 run=  -47014 evt=       0 top=SIM_ nd=      1 banks=     4
+  EVT #    3 run=  -47014 evt=       0 top=TOP  nd=      1 banks=     2
+  EVT #    4 run=  -47014 evt=       1 top=SIM_ nd=      1 banks=    18
+  EVT #    5 run=  -47014 evt=       1 top=TOP  nd=      1 banks=    19
+Total events read by CERNLIB FZIN:      5 LREC= 3840
 """
 
 
@@ -37,8 +39,9 @@ class CompareFortranCppTest(unittest.TestCase):
             "events": [
                 {
                     "index": 1,
-                    "run": 47014,
+                    "run": -47014,
                     "event": 1,
+                    "top_bank": "DTOP",
                     "zebra_banks": 15,
                     "raw_blocklets": 0,
                     "dst_particles": 10,
@@ -46,8 +49,9 @@ class CompareFortranCppTest(unittest.TestCase):
                 },
                 {
                     "index": 2,
-                    "run": 47014,
+                    "run": -47014,
                     "event": 2,
+                    "top_bank": "DTOP",
                     "zebra_banks": 16,
                     "raw_blocklets": 0,
                     "dst_particles": 11,
@@ -58,21 +62,30 @@ class CompareFortranCppTest(unittest.TestCase):
         ok, report = compare_reports(SAMPLE_SDST, cpp_summary, "simana.sdst")
         self.assertTrue(ok, report)
 
-    def test_fadsim_run_preamble_excluded_from_physics_count(self) -> None:
+    def test_fadsim_mixed_sim_and_top_with_evt0(self) -> None:
+        cpp_summary = {
+            "physical_record_words": 3840,
+            "events_count": 4,
+            "events": [
+                {"index": 1, "run": -47014, "event": 0, "top_bank": "SIM_", "zebra_banks": 69},
+                {"index": 2, "run": -47014, "event": 0, "top_bank": "TOP", "zebra_banks": 4},
+                {"index": 3, "run": -47014, "event": 1, "top_bank": "SIM_", "zebra_banks": 109},
+                {"index": 4, "run": -47014, "event": 1, "top_bank": "TOP", "zebra_banks": 1132},
+            ],
+        }
+        ok, report = compare_reports(SAMPLE_FADSIM_MIXED, cpp_summary, "simana.fadsim")
+        self.assertTrue(ok, report)
+
+    def test_event_number_mismatch_fails(self) -> None:
         cpp_summary = {
             "physical_record_words": 3840,
             "events_count": 2,
             "events": [
-                {"index": 1, "run": 47014, "event": 1, "zebra_banks": 18},
-                {"index": 2, "run": 47014, "event": 2, "zebra_banks": 19},
+                {"index": 1, "run": -47014, "event": 99, "top_bank": "DTOP"},
+                {"index": 2, "run": -47014, "event": 2, "top_bank": "DTOP"},
             ],
         }
-        ok, report = compare_reports(SAMPLE_FADSIM_WITH_RUN, cpp_summary, "simana.fadsim")
-        self.assertTrue(ok, report)
-
-    def test_event_count_mismatch_fails(self) -> None:
-        cpp_summary = {"physical_record_words": 3840, "events_count": 1, "events": []}
-        ok, _ = compare_reports(SAMPLE_SDST, cpp_summary, "bad")
+        ok, _ = compare_reports(SAMPLE_SDST, cpp_summary, "bad_evt")
         self.assertFalse(ok)
 
 
