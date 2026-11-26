@@ -12,8 +12,11 @@
 #include "delphipp/helix.hpp"
 #include "delphipp/io/raw_blocklet.hpp"
 #include "delphipp/reco/ambiguity_solver.hpp"
+#include "delphipp/reco/had.hpp"
 #include "delphipp/reco/hof.hpp"
 #include "delphipp/reco/kalman_fitter.hpp"
+#include "delphipp/reco/tof.hpp"
+#include "delphipp/reco/tpc.hpp"
 #include "delphipp/reco/vertex_fitter.hpp"
 #include "delphipp/zebra_store.hpp"
 
@@ -43,7 +46,35 @@ PerigeeTrack track_from_p3_charge(float px,
   };
 }
 
-constexpr std::array<const char*, 18> kRawBankIds = {
+struct PartitionSpec {
+  std::int32_t raw_link_idx;  // 1-based LQ(LRAW - il), per delsim36.car:23986
+  const char* pmb_bank;
+  const char* short_name;
+  std::int32_t detector_id;
+};
+
+constexpr std::array<PartitionSpec, 18> kDelsimPartitions = {{
+    {5,  "RCP ", "CP",   0},
+    {6,  "RVD ", "VD",   3},
+    {7,  "RID ", "ID",   4},
+    {8,  "RTPC", "TPC",  5},
+    {9,  "RRIB", "RIB",  17},
+    {10, "ROD ", "OD",   8},
+    {11, "RHPC", "HPC",  9},
+    {12, "RTOF", "TOF",  11},
+    {13, "RHAC", "HAC",  13},
+    {14, "RMUB", "MUB",  14},
+    {15, "RFCA", "FCA",  20},
+    {16, "RRIF", "RIF",  17},
+    {17, "RSAT", "SAT",  16},
+    {18, "RFCB", "FCB",  25},
+    {19, "REMF", "EMF",  15},
+    {20, "RHOF", "HOF",  29},
+    {21, "RMUF", "MUF",  26},
+    {22, "RLUM", "LUM",  21},
+}};
+
+constexpr std::array<const char*, 18> kLegacyRawBankIds = {
     "EGRA", "EQRA", "EDRA", "EMRA", "EFRA", "RAW ",
     "VDRA", "IDRA", "TPRA", "ODRA", "HPRA", "HARA",
     "FCRA", "RIRA", "SARA", "STRA", "TORA", "MURA",
@@ -92,47 +123,181 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
 
   const auto b0 = bfield_.evaluate({0.0f, 0.0f, 0.0f});
 
-  OwnedZebraStore zstore(65536);
+  std::size_t zstore_words = 1024;
+  for (const auto& b : ev.banks) {
+    zstore_words += static_cast<std::size_t>(
+        std::max<std::int32_t>(b.nl, 0) + std::max<std::int32_t>(b.nd, 0) + 32);
+  }
+  zstore_words = std::max<std::size_t>(zstore_words, 65536);
+  OwnedZebraStore zstore(zstore_words);
   auto zview = zstore.view();
   const auto bank_heads = ev.populate_zebra_store(zview);
 
-  // 1. Specialized HOF raw-to-TD unpacking when EGRA/EQRA banks are present
+  std::vector<dst::NeutralInput> neutrals;
+  std::unordered_set<std::int32_t> processed_rawd_links;
+
   reco::hof::HofCalibration hof_calib{};
   reco::hof::HofStats hof_stats{};
   hof_stats.begin_event();
-  if (auto it = bank_heads.find("EGRA"); it != bank_heads.end()) {
-    const std::int32_t mraw =
-        bank_heads.contains("EQRA") ? bank_heads.at("EQRA") : 0;
-    const auto hof_res =
-        reco::hof::unpack_td(zview, it->second, mraw, hof_calib, hof_stats);
-    out.hof_hits = hof_res.counter_hits;
-    if (!hof_res.hits.empty()) {
-      std::vector<float> flat;
-      flat.reserve(hof_res.hits.size() * 8);
-      for (const auto& h : hof_res.hits) {
-        flat.insert(flat.end(), h.words.begin(), h.words.end());
+  const std::int32_t eqra_head = bank_heads.contains("EQRA") ? bank_heads.at("EQRA") : 0;
+
+  reco::tpc::TpcCalibration tpc_calib{};
+  if (abst0_val_ > 0.0f) {
+    tpc_calib.abst0_bins = abst0_val_;
+  }
+
+  auto process_rawd_chain = [&](const char* part_name,
+                                std::int32_t default_det_id,
+                                std::int32_t first_rawd) {
+    if (first_rawd <= 0 || processed_rawd_links.contains(first_rawd)) {
+      return;
+    }
+    const auto blocklets = io::read_raw_blocklet_chain(zview, first_rawd);
+    for (const auto& bl : blocklets) {
+      processed_rawd_links.insert(bl.bank_link);
+    }
+    if (blocklets.empty()) {
+      return;
+    }
+
+    out.raw_blocklets += blocklets.size();
+    out.detector_blocklet_counts[part_name] += blocklets.size();
+
+    const std::string pname(part_name);
+    if (pname == "HOF") {
+      const auto hof_res = reco::hof::unpack_td(
+          zview, first_rawd, eqra_head, hof_calib, hof_stats);
+      out.hof_hits += hof_res.counter_hits;
+      if (!hof_res.hits.empty()) {
+        std::vector<float> flat;
+        flat.reserve(hof_res.hits.size() * 8);
+        for (const auto& h : hof_res.hits) {
+          flat.insert(flat.end(), h.words.begin(), h.words.end());
+        }
+        out.tanagra.add_tdr(TdrBank{
+            .detector_id = reco::hof::kDetectorId,
+            .submod_id = 1,
+            .descriptor = 290,
+            .num_points = static_cast<std::int32_t>(hof_res.hits.size()),
+            .words_per_point = 8,
+            .data = std::move(flat),
+        });
       }
-      out.tanagra.add_tdr(TdrBank{
-          .detector_id = reco::hof::kDetectorId,
-          .submod_id = 1,
-          .descriptor = 290,
-          .num_points = static_cast<std::int32_t>(hof_res.hits.size()),
-          .words_per_point = 8,
-          .data = std::move(flat),
+    }
+
+    for (const auto& bl : blocklets) {
+      const std::int32_t det_id =
+          (default_det_id > 0) ? default_det_id : bl.detector_id;
+      const auto tdr_id = out.tanagra.add_tdr(TdrBank{
+          .detector_id = det_id,
+          .submod_id = bl.subdet_id,
+          .descriptor = bl.flags,
+          .num_points = 1,
+          .words_per_point = static_cast<std::int32_t>(
+              std::min<std::size_t>(bl.data.size(), 4)),
+          .data = {
+              static_cast<float>(bl.num_words),
+              static_cast<float>(det_id),
+              static_cast<float>(bl.subdet_id),
+              abst0_val_,
+          },
       });
+      out.tanagra.add_ter(TerBank{
+          .detector_id = det_id,
+          .submod_id = bl.subdet_id,
+          .descriptor = bl.flags,
+          .iwords = {bl.num_words, det_id, bl.subdet_id},
+          .fwords = {abst0_val_},
+          .td_refs = {tdr_id},
+      });
+
+      if (pname == "HAC") {
+        const auto towers = reco::had::unpack_raw_blocklet(bl.data);
+        if (!towers.empty()) {
+          const auto clusters = reco::had::find_clusters(towers, 0.25f);
+          reco::had::write_ter_banks(out.tanagra, clusters);
+          for (const auto& cl : clusters) {
+            const float st = std::sin(cl.theta_rad);
+            neutrals.push_back(dst::NeutralInput{
+                .xyz_cm = {
+                    cl.r_cm * st * std::cos(cl.phi_rad),
+                    cl.r_cm * st * std::sin(cl.phi_rad),
+                    cl.r_cm * std::cos(cl.theta_rad),
+                },
+                .energy_gev = cl.energy_gev,
+                .is_ecal = false,
+            });
+          }
+        }
+      } else if (pname == "TOF") {
+        const auto tof_hits = reco::tof::unpack_raw_blocklet(bl.data);
+        if (!tof_hits.empty()) {
+          reco::tof::create_td_banks(out.tanagra, tof_hits);
+        }
+      } else if (pname == "TPC") {
+        const auto pad_hits = reco::tpc::unpack_raw_blocklet(bl.data, tpc_calib);
+        if (!pad_hits.empty()) {
+          const auto pts = reco::tpc::reconstruct_space_points(pad_hits, tpc_calib);
+          reco::tpc::write_ter_banks(out.tanagra, pts);
+        }
+      }
+    }
+  };
+
+  // 1. Traverse DELSIM TOP -> RAW -> 18 Partition Master Banks (LQ(LRAW-il)) -> RAWD (LQ(LPMB-5))
+  std::int32_t lraw_root = 0;
+  if (auto it = bank_heads.find("TOP "); it != bank_heads.end()) {
+    const std::int32_t ltop = it->second;
+    if (zview.bank_nl(ltop) >= 1) {
+      lraw_root = zview.bank_link(ltop, 1);
+    }
+  }
+  if (lraw_root <= 0) {
+    if (auto it = bank_heads.find("RAW "); it != bank_heads.end()) {
+      lraw_root = it->second;
     }
   }
 
-  // 2. Uniform raw blocklet decoding across all 18 DELPHI detector banks
-  for (const char* raw_id : kRawBankIds) {
+  for (const auto& part : kDelsimPartitions) {
+    std::int32_t lpmb = 0;
+    if (lraw_root > 0 && zview.bank_nl(lraw_root) >= part.raw_link_idx) {
+      lpmb = zview.bank_link(lraw_root, part.raw_link_idx);
+    }
+    if (lpmb <= 0) {
+      if (auto it = bank_heads.find(part.pmb_bank); it != bank_heads.end()) {
+        lpmb = it->second;
+      }
+    }
+    while (lpmb > 0) {
+      if (zview.bank_nl(lpmb) >= 5) {
+        process_rawd_chain(
+            part.short_name, part.detector_id, zview.bank_link(lpmb, 5));
+      }
+      lpmb = zview.bank_next(lpmb);
+    }
+  }
+
+  // 2. Fallback: unpack HOF EGRA & legacy raw blocklet banks (flat *RA banks or unlinked RAWD)
+  if (auto it = bank_heads.find("EGRA"); it != bank_heads.end()) {
+    process_rawd_chain("HOF", reco::hof::kDetectorId, it->second);
+  }
+  for (const char* raw_id : kLegacyRawBankIds) {
+    if (std::string(raw_id) == "RAW ") {
+      continue;
+    }
     if (auto it = bank_heads.find(raw_id); it != bank_heads.end()) {
       const auto blocklets = io::read_raw_blocklet_chain(zview, it->second);
-      out.raw_blocklets += blocklets.size();
       for (const auto& bl : blocklets) {
+        if (processed_rawd_links.contains(bl.bank_link)) {
+          continue;
+        }
+        processed_rawd_links.insert(bl.bank_link);
         std::string dname = detector_name(bl.detector_id);
-        if (std::string(raw_id) == "EGRA" && bl.detector_id == reco::hof::kModuleSim) {
+        if (std::string(raw_id) == "EGRA" &&
+            bl.detector_id == reco::hof::kModuleSim) {
           dname = "HOF";
         }
+        ++out.raw_blocklets;
         ++out.detector_blocklet_counts[dname];
         const auto tdr_id = out.tanagra.add_tdr(TdrBank{
             .detector_id = bl.detector_id,
@@ -159,6 +324,16 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
       }
     }
   }
+  if (auto it = bank_heads.find("RAWD"); it != bank_heads.end()) {
+    for (const auto& b : ev.banks) {
+      if (b.idh != "RAWD" || b.orig_addr <= 0) {
+        continue;
+      }
+      // If a RAWD bank was not reached via RAW -> PMB, recover its partition from RAWD payload/ID
+      process_rawd_chain("RAWD", 0, it->second);
+      break;
+    }
+  }
 
   // 3. Extract PV beamspot & PA particle candidates (pxdst33.car layout)
   reco::tracking::BeamspotConstraint beamspot{};
@@ -172,6 +347,16 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
         std::fabs(vz) < 50.0f) {
       beamspot.xyz_cm = {vx, vy, vz};
     }
+  } else if (const auto* sp = ev.find_first("SP  ");
+             sp != nullptr && sp->fwords.size() >= 4) {
+    const float vx = sp->fwords[1];
+    const float vy = sp->fwords[2];
+    const float vz = sp->fwords[3];
+    if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
+        std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f &&
+        std::fabs(vz) < 50.0f) {
+      beamspot.xyz_cm = {vx, vy, vz};
+    }
   }
 
   struct ChargedCandidate {
@@ -179,7 +364,6 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
     reco::tracking::CandidateTrack solver_cand;
   };
   std::vector<ChargedCandidate> charged_candidates;
-  std::vector<dst::NeutralInput> neutrals;
 
   std::int32_t next_syn_id = -1;
   const auto pa_banks = ev.find_all("PA  ");
@@ -244,6 +428,49 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
             .energy_gev = energy,
             .is_ecal = true,
         });
+      }
+    }
+  }
+
+  // Fallback for DELSIM MC truth SIM_ records: decode ST truth banks when no PA banks exist
+  if (pa_banks.empty()) {
+    const auto st_banks = ev.find_all("ST  ");
+    for (std::size_t i = 0; i < st_banks.size(); ++i) {
+      const auto* st = st_banks[i];
+      if (st->fwords.size() < 8) {
+        continue;
+      }
+      const float px = st->fwords[1];
+      const float py = st->fwords[2];
+      const float pz = st->fwords[3];
+      const float energy = st->fwords[4];
+      const float charge_f = st->fwords[6];
+      const float mass = st->fwords[7];
+      if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz) ||
+          !std::isfinite(energy) || energy <= 0.01f || energy > 200.0f) {
+        continue;
+      }
+      const int q = static_cast<int>(std::lround(charge_f));
+      if (q == 1 || q == -1) {
+        const auto trk = track_from_p3_charge(px, py, pz, q, b0.bz);
+        charged_candidates.push_back(ChargedCandidate{
+            .pid_input = dst::TrackPidInput{.track = trk, .charge = q},
+            .solver_cand = reco::tracking::CandidateTrack{
+                .id = static_cast<std::int32_t>(charged_candidates.size()),
+                .te_ids = {next_syn_id--},
+                .score = static_cast<double>(energy) + 1.0,
+            },
+        });
+      } else {
+        const float p_mag = std::sqrt(px * px + py * py + pz * pz);
+        if (p_mag > 1e-4f) {
+          const float scale = 200.0f / p_mag;
+          neutrals.push_back(dst::NeutralInput{
+              .xyz_cm = {px * scale, py * scale, pz * scale},
+              .energy_gev = energy,
+              .is_ecal = (mass < 0.05f),
+          });
+        }
       }
     }
   }

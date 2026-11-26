@@ -29,7 +29,10 @@ struct ParsedZebraBank {
   std::int32_t ns = 0;
   std::int32_t nd = 0;
   std::int32_t status = 0;
-  std::vector<std::int32_t> links;   // NL link words preceding the bank header if present
+  std::int32_t orig_addr = 0;  // Original ZEBRA LQ bank address from FZ relocation table
+  std::int32_t next_link = 0;  // LQ(L) before relocation
+  std::int32_t up_link = 0;    // LQ(L+1) before relocation
+  std::vector<std::int32_t> links;   // 1-based LQ(L-1)..LQ(L-NL) stored at index 0..NL-1
   std::vector<std::int32_t> iwords;  // ND integer/raw data words
   std::vector<float> fwords;         // ND IEEE-754 float bit-cast views of iwords
 };

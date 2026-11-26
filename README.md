@@ -58,24 +58,24 @@ Static analysis of `simana_v94d` (`164` `.car` files, `810,903` non-comment line
 
 | Detector | Fortran Package | Non-comment Lines | DELPHI++ Header | Core C++20 Port | Wired in `pipeline/` | Fortran Parity |
 |---|---|---:|---|---|---|---|
-| **HOF** (Forward Hodoscope) | `hofana.car` | 471 | `reco/hof/hof.hpp` | Done | Yes (`EGRA`/`EQRA`) | Pending full real-data `bank_diff` |
-| **MUS** (Surround Muon Chambers) | `musana.car` | 1,233 | `reco/mus/mus.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **MUF** (Forward Muon Chambers) | `mufana.car` | 1,315 | `reco/muf/muf.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **MUB** (Barrel Muon Chambers) | `mubana.car` | 2,783 | `reco/mub/mub.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **TOF** (Time of Flight) | `tofana.car` | 4,259 | `reco/tof/tof.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **SAT** (Small Angle Tagger) | `satana.car` | 5,100 | `reco/sat/sat.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **EMF** (Forward EM Calorimeter) | `emfana.car` | 5,181 | `reco/emf/emf.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **HAD** (Hadron Calorimeter) | `hadana.car` | 5,878 | `reco/had/had.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **STW** / **LUM** (Straw / Lumi) | `stwana.car`, `lumana.car` | 14,225 | `reco/stc/stc.hpp`, `reco/sat/sat.hpp` | Partial (combined in `stc`/`sat`) | Blocklet decode | Pending standalone split & `bank_diff` |
-| **FCA** (Forward Chamber A) | `fcaana.car` | 8,880 | `reco/fwd/fwd_chambers.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **STC** (Small Angle Tile Calo) | `stcana.car` | 11,582 | `reco/stc/stc.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **VD** (Vertex Detector) | `vdana.car` | 11,720 | `reco/vd/vd.hpp` | Done | Blocklet decode | Pending cluster/alignment DB parity |
-| **TPC** (Time Projection Chamber) | `tpcana.car` | 13,368 | `reco/tpc/tpc.hpp` | Done (`94D ABST0`, `dE/dx`) | Blocklet + `ABST0` | Pending raw pad/wire unpacker parity |
-| **OD** (Outer Detector) | `odana.car` | 16,834 | `reco/od/od.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **ID** (Inner Detector) | `idana.car` | 17,494 | `reco/id/id.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **FCB** (Forward Chamber B) | `fcbana.car` | 18,866 | `reco/fwd/fwd_chambers.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **HPC** (Barrel EM Calorimeter) | `hpcana.car` | 23,187 | `reco/hpc/hpc.hpp` | Done | Blocklet decode | Pending raw unpacker & `bank_diff` |
-| **RICH** (Barrel & Forward RICH) | `richall.car` | ~30k | `reco/rich/rich.hpp` | Done | Blocklet + PID | Pending photon ring likelihood parity |
+| **HOF** (Forward Hodoscope) | `hofana.car` | 471 | `reco/hof/hof.hpp` | Done | Yes (`RHOF` / `EGRA` / `EQRA`) | Pending full real-data `bank_diff` |
+| **MUS** (Surround Muon Chambers) | `musana.car` | 1,233 | `reco/mus/mus.hpp` | Done | Tree `RAWD` decode | Pending chamber hit `bank_diff` |
+| **MUF** (Forward Muon Chambers) | `mufana.car` | 1,315 | `reco/muf/muf.hpp` | Done | Tree `RMUF->RAWD` | Pending chamber hit `bank_diff` |
+| **MUB** (Barrel Muon Chambers) | `mubana.car` | 2,783 | `reco/mub/mub.hpp` | Done | Tree `RMUB->RAWD` | Pending chamber hit `bank_diff` |
+| **TOF** (Time of Flight) | `tofana.car` | 4,259 | `reco/tof/tof.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RTOF->RAWD->TDR`) | Pending timing `bank_diff` |
+| **SAT** (Small Angle Tagger) | `satana.car` | 5,100 | `reco/sat/sat.hpp` | Done | Tree `RSAT->RAWD` | Pending raw unpacker & `bank_diff` |
+| **EMF** (Forward EM Calorimeter) | `emfana.car` | 5,181 | `reco/emf/emf.hpp` | Done | Tree `REMF->RAWD` | Pending raw unpacker & `bank_diff` |
+| **HAD** (Hadron Calorimeter) | `hadana.car` | 5,878 | `reco/had/had.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RHAC->RAWD->TER`) | Pending tower `bank_diff` |
+| **STW** / **LUM** (Straw / Lumi) | `stwana.car`, `lumana.car` | 14,225 | `reco/stc/stc.hpp`, `reco/sat/sat.hpp` | Partial (combined in `stc`/`sat`) | Tree `RLUM->RAWD` | Pending standalone split & `bank_diff` |
+| **FCA** (Forward Chamber A) | `fcaana.car` | 8,880 | `reco/fwd/fwd_chambers.hpp` | Done | Tree `RFCA->RAWD` | Pending raw unpacker & `bank_diff` |
+| **STC** (Small Angle Tile Calo) | `stcana.car` | 11,582 | `reco/stc/stc.hpp` | Done | Tree `RAWD` decode | Pending raw unpacker & `bank_diff` |
+| **VD** (Vertex Detector) | `vdana.car` | 11,720 | `reco/vd/vd.hpp` | Done | Tree `RVD ->RAWD` | Pending cluster/alignment DB parity |
+| **TPC** (Time Projection Chamber) | `tpcana.car` | 13,368 | `reco/tpc/tpc.hpp` | Done (`94D ABST0`, `dE/dx`, `unpack_raw_blocklet`) | Yes (`RTPC->RAWD->TER`) | Pending wire/pad `bank_diff` |
+| **OD** (Outer Detector) | `odana.car` | 16,834 | `reco/od/od.hpp` | Done | Tree `ROD ->RAWD` | Pending raw unpacker & `bank_diff` |
+| **ID** (Inner Detector) | `idana.car` | 17,494 | `reco/id/id.hpp` | Done | Tree `RID ->RAWD` | Pending raw unpacker & `bank_diff` |
+| **FCB** (Forward Chamber B) | `fcbana.car` | 18,866 | `reco/fwd/fwd_chambers.hpp` | Done | Tree `RFCB->RAWD` | Pending raw unpacker & `bank_diff` |
+| **HPC** (Barrel EM Calorimeter) | `hpcana.car` | 23,187 | `reco/hpc/hpc.hpp` | Done | Tree `RHPC->RAWD` | Pending raw unpacker & `bank_diff` |
+| **RICH** (Barrel & Forward RICH) | `richall.car` | ~30k | `reco/rich/rich.hpp` | Done | Tree `RRIB`/`RRIF->RAWD` + PID | Pending photon ring likelihood parity |
 
 ### Global Tracking, Particle ID, DST, and Simulation
 

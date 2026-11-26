@@ -124,6 +124,72 @@ std::vector<HadCluster> find_clusters(std::span<const HadTowerHit> towers,
   return clusters;
 }
 
+std::vector<HadTowerHit> unpack_raw_blocklet(std::span<const std::int32_t> words) {
+  std::vector<HadTowerHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+
+  std::size_t istart = words.size();
+  std::size_t nraw = 0;
+  const std::uint32_t w2 = static_cast<std::uint32_t>(words[2]) & 0xFFFFu;
+  if (w2 == 0x5A5Au || w2 == 0xA5A5u) {
+    if (words[0] > 5) {
+      nraw = static_cast<std::size_t>(words[0] - 5);
+      istart = 4;
+    }
+  } else {
+    for (std::size_t i = 1; i < words.size(); ++i) {
+      const std::uint32_t lo = static_cast<std::uint32_t>(words[i]) & 0xFFFFu;
+      const std::uint32_t hi = (static_cast<std::uint32_t>(words[i]) >> 16) & 0xFFFFu;
+      if (lo == 0x5A5Au || lo == 0xA5A5u || hi == 0x5A5Au || hi == 0xA5A5u) {
+        if (i >= 2 && words[i - 2] > 5) {
+          istart = i + 2;
+          nraw = static_cast<std::size_t>(words[i - 2] - 5);
+          break;
+        }
+      }
+    }
+    if (istart >= words.size() && words[0] >= 5 &&
+        static_cast<std::size_t>(words[0]) <= words.size()) {
+      istart = 4;
+      nraw = static_cast<std::size_t>(words[0] - 4);
+    }
+  }
+
+  if (istart >= words.size()) {
+    return hits;
+  }
+  const std::size_t end = std::min(words.size(), istart + nraw);
+  constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+  for (std::size_t i = istart; i < end; ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::int32_t adc = static_cast<std::int32_t>(u & 0xFFu);
+    if (adc <= 0) {
+      continue;
+    }
+    const std::int32_t tower = static_cast<std::int32_t>((u >> 8) & 0xFFu);
+    const std::int32_t port = static_cast<std::int32_t>((u >> 16) & 0x7Fu);
+    const std::int32_t iphi = port % kNumPhiBins;
+    const std::int32_t itheta = tower % 64;
+    const std::int32_t ilayer = static_cast<std::int32_t>((u >> 24) & 0x3u) + 1;
+    const float energy_gev = static_cast<float>(adc) * 0.17f;
+    const float theta_rad = 0.25f + (static_cast<float>(itheta) + 0.5f) * (2.64f / 64.0f);
+    const float phi_rad = (static_cast<float>(iphi) + 0.5f) * (kTwoPi / static_cast<float>(kNumPhiBins));
+    const float r_cm = 320.0f + static_cast<float>(ilayer) * 15.0f;
+    hits.push_back(HadTowerHit{
+        .itheta = itheta,
+        .iphi = iphi,
+        .ilayer = ilayer,
+        .energy_gev = energy_gev,
+        .r_cm = r_cm,
+        .theta_rad = theta_rad,
+        .phi_rad = phi_rad,
+    });
+  }
+  return hits;
+}
+
 std::vector<TanagraId> write_ter_banks(TanagraStore& store,
                                        std::span<const HadCluster> clusters) {
   std::vector<TanagraId> ids;

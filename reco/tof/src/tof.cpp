@@ -32,6 +32,37 @@ TofSectorPose sector_pose(std::int32_t sector_1based) noexcept {
   return TofSectorPose{.r_cm = kTofRadiusCm, .phi_rad = phi, .z_cm = z};
 }
 
+std::vector<TofCounterHit> unpack_raw_blocklet(std::span<const std::int32_t> words) {
+  std::vector<TofCounterHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::int32_t slot = static_cast<std::int32_t>((u >> 27) & 0x1Fu);
+    const std::int32_t chan = static_cast<std::int32_t>((u >> 17) & 0x7Fu);
+    const std::uint32_t tdc = u & 0xFFFFu;
+    if (slot <= 0 || chan >= 64 || tdc == 0u || tdc >= 0xFFFFu) {
+      continue;
+    }
+    const std::int32_t counter_num = ((slot * 16 + chan) % 192) + 1;
+    const std::int32_t sector = ((counter_num - 1) / 4) + 1;
+    const auto pose = sector_pose(sector);
+    const float time_ns = 0.5f * static_cast<float>(tdc);
+    hits.push_back(TofCounterHit{
+        .counter_num = counter_num,
+        .r_cm = pose.r_cm,
+        .r_phi_cm = pose.r_cm * pose.phi_rad,
+        .z_cm = pose.z_cm,
+        .pm_ext = time_ns,
+        .pm_int = time_ns,
+    });
+  }
+  return hits;
+}
+
 std::vector<TanagraId> create_td_banks(
     TanagraStore& store,
     std::span<const TofCounterHit> hits,

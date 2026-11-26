@@ -10,6 +10,7 @@
 #include <cstring>
 #include <optional>
 #include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "delphipp/io/fz_exchange.hpp"
@@ -77,7 +78,11 @@ const std::unordered_set<std::string>& known_bank_priority_set() {
       "TV  ", "VD  ", "TPC ", "ID  ", "OD  ", "HPC ", "HAC ", "MUF ",
       "MUB ", "MUS ", "EMF ", "TOF ", "SAT ", "STC ", "RIC ", "FCA ",
       "FCB ", "RAW ", "DST ", "DTOP", "TOP ", "MINI", "RUN ", "RAWH",
-      "RAWD", "TRG ", "TRGH", "SH  ", "SIM_", "TEVS", "TIOD", "CORR",
+      "RAWD", "TRG ", "TRGH", "TRD1", "TRD2", "SH  ", "SIM_", "SIMP",
+      "RTRA", "SE  ", "SI  ", "SP  ", "ST  ", "SX  ", "RCP ", "RVD ",
+      "RID ", "RTPC", "RRIB", "ROD ", "RHPC", "RTOF", "RHAC", "RMUB",
+      "RFCA", "RRIF", "RSAT", "RFCB", "REMF", "RHOF", "RMUF", "RLUM",
+      "TEVS", "TIOD", "CORR",
   };
   return kKnown;
 }
@@ -119,7 +124,8 @@ std::optional<std::string> decode_hollerith_word(std::uint32_t w, bool big_endia
 
 ParsedZebraBank make_bank_at(const std::vector<std::int32_t>& words,
                              std::size_t p,
-                             const std::string& idh) {
+                             const std::string& idh,
+                             std::int32_t orig_addr = 0) {
   ParsedZebraBank b;
   b.idn = words[p];
   b.idh_raw = words[p + 1];
@@ -128,13 +134,17 @@ ParsedZebraBank make_bank_at(const std::vector<std::int32_t>& words,
   b.ns = words[p + 3];
   b.nd = words[p + 4];
   b.status = words[p + 5];
+  b.orig_addr = orig_addr;
 
-  // Preceding NL links (skipping LQ(L)=next, LQ(L+1)=up, LQ(L+2)=orig -> 3 words)
+  if (p >= 3) {
+    b.next_link = words[p - 3];
+    b.up_link = words[p - 2];
+  }
+  // Store LQ(L - (j + 1)) in links[j]: IQ(L - 5) == LQ(L + 3), so LQ(L - k) == words[p - 3 - k].
   if (b.nl > 0 && p >= static_cast<std::size_t>(b.nl + 3)) {
     b.links.reserve(static_cast<std::size_t>(b.nl));
-    const std::size_t link_base = p - 3 - static_cast<std::size_t>(b.nl);
-    for (std::int32_t j = 0; j < b.nl; ++j) {
-      b.links.push_back(words[link_base + static_cast<std::size_t>(j)]);
+    for (std::int32_t j = 1; j <= b.nl; ++j) {
+      b.links.push_back(words[p - 3 - static_cast<std::size_t>(j)]);
     }
   }
 
@@ -162,34 +172,101 @@ void update_event_header_from_head(const ParsedZebraBank& head,
   }
 }
 
+struct RelocSegment {
+  std::int32_t orig_lo = 0;
+  std::size_t bk_begin = 0;
+  std::size_t bk_end = 0;
+};
+
+std::vector<RelocSegment> decode_reloc_segments(
+    const std::vector<std::int32_t>& words,
+    std::size_t tab_off,
+    std::size_t nwtab,
+    std::size_t bk_off,
+    std::size_t nwbk) {
+  if (nwtab >= 2 && (nwtab % 2 == 0)) {
+    std::int64_t sum_excl = 0;
+    std::int64_t sum_incl = 0;
+    bool pairs_ok = true;
+    for (std::size_t i = 0; i < nwtab; i += 2) {
+      const std::int32_t lo = words[tab_off + i];
+      const std::int32_t hi = words[tab_off + i + 1];
+      if (lo < 0 || hi < lo) {
+        pairs_ok = false;
+        break;
+      }
+      sum_excl += static_cast<std::int64_t>(hi) - lo;
+      sum_incl += static_cast<std::int64_t>(hi) - lo + 1LL;
+    }
+    if (pairs_ok && (sum_excl == static_cast<std::int64_t>(nwbk) ||
+                     sum_incl == static_cast<std::int64_t>(nwbk))) {
+      const std::int64_t bias = (sum_excl == static_cast<std::int64_t>(nwbk)) ? 0LL : 1LL;
+      std::vector<RelocSegment> segs;
+      std::size_t cur = bk_off;
+      for (std::size_t i = 0; i < nwtab; i += 2) {
+        const std::int32_t lo = words[tab_off + i];
+        const std::int32_t hi = words[tab_off + i + 1];
+        const std::size_t len = static_cast<std::size_t>(
+            static_cast<std::int64_t>(hi) - lo + bias);
+        if (len > 0 && cur + len <= bk_off + nwbk) {
+          segs.push_back(RelocSegment{.orig_lo = lo, .bk_begin = cur, .bk_end = cur + len});
+        }
+        cur += len;
+      }
+      if (!segs.empty()) {
+        return segs;
+      }
+    }
+  }
+  return {RelocSegment{.orig_lo = 0, .bk_begin = bk_off, .bk_end = bk_off + nwbk}};
+}
+
+std::vector<ParsedZebraBank> scan_bank_material_segments(
+    const std::vector<std::int32_t>& words,
+    const std::vector<RelocSegment>& segs,
+    bool big_endian,
+    FzParseResult& result) {
+  std::vector<ParsedZebraBank> banks;
+  for (const auto& seg : segs) {
+    for (std::size_t p = seg.bk_begin; p + 6 <= seg.bk_end;) {
+      const std::uint32_t idh_u = static_cast<std::uint32_t>(words[p + 1]);
+      const std::int32_t nl = words[p + 2];
+      const std::int32_t ns = words[p + 3];
+      const std::int32_t nd = words[p + 4];
+
+      if (nl >= 0 && nl <= 256 && ns >= 0 && ns <= nl && nd >= 0 &&
+          p + 6 + static_cast<std::size_t>(nd) <= seg.bk_end) {
+        if (const auto idh = decode_hollerith_word(idh_u, big_endian)) {
+          if (known_bank_priority_set().contains(*idh) || (nd > 0 && nl <= 64)) {
+            std::int32_t orig_l = 0;
+            if (seg.orig_lo > 0 && p >= seg.bk_begin + 3) {
+              orig_l = seg.orig_lo + static_cast<std::int32_t>(p - seg.bk_begin) - 3;
+            }
+            banks.push_back(make_bank_at(words, p, *idh, orig_l));
+            ++result.total_banks;
+            ++result.bank_counts[*idh];
+            p += 6 + static_cast<std::size_t>(nd);
+            continue;
+          }
+        }
+      }
+      ++p;
+    }
+  }
+  return banks;
+}
+
 std::vector<ParsedZebraBank> scan_bank_material_slice(
     const std::vector<std::int32_t>& words,
     std::size_t begin_idx,
     std::size_t end_idx,
     bool big_endian,
     FzParseResult& result) {
-  std::vector<ParsedZebraBank> banks;
-  for (std::size_t p = begin_idx; p + 6 <= end_idx;) {
-    const std::uint32_t idh_u = static_cast<std::uint32_t>(words[p + 1]);
-    const std::int32_t nl = words[p + 2];
-    const std::int32_t ns = words[p + 3];
-    const std::int32_t nd = words[p + 4];
-
-    if (nl >= 0 && nl <= 256 && ns >= 0 && ns <= nl && nd >= 0 &&
-        p + 6 + static_cast<std::size_t>(nd) <= end_idx) {
-      if (const auto idh = decode_hollerith_word(idh_u, big_endian)) {
-        if (known_bank_priority_set().contains(*idh) || (nd > 0 && nl <= 64)) {
-          banks.push_back(make_bank_at(words, p, *idh));
-          ++result.total_banks;
-          ++result.bank_counts[*idh];
-          p += 6 + static_cast<std::size_t>(nd);
-          continue;
-        }
-      }
-    }
-    ++p;
-  }
-  return banks;
+  return scan_bank_material_segments(
+      words,
+      {RelocSegment{.orig_lo = 0, .bk_begin = begin_idx, .bk_end = end_idx}},
+      big_endian,
+      result);
 }
 
 bool parse_cernlib_fz_logical_records(const std::vector<std::int32_t>& words,
@@ -232,14 +309,16 @@ bool parse_cernlib_fz_logical_records(const std::vector<std::int32_t>& words,
                              words.begin() + static_cast<std::ptrdiff_t>(uh_off + uh_len));
         }
 
-        const std::size_t bk_off = uh_off + uh_len +
-                                   static_cast<std::size_t>(nwseg) +
-                                   static_cast<std::size_t>(nwtx) +
-                                   static_cast<std::size_t>(nwtab);
-        const std::size_t bk_end = bk_off + static_cast<std::size_t>(nwbk);
+        const std::size_t tab_off = uh_off + uh_len +
+                                    static_cast<std::size_t>(nwseg) +
+                                    static_cast<std::size_t>(nwtx);
+        const std::size_t bk_off = tab_off + static_cast<std::size_t>(nwtab);
+        const auto segs = decode_reloc_segments(
+            words, tab_off, static_cast<std::size_t>(nwtab),
+            bk_off, static_cast<std::size_t>(nwbk));
 
         auto ev_banks =
-            scan_bank_material_slice(words, bk_off, bk_end, big_endian, result);
+            scan_bank_material_segments(words, segs, big_endian, result);
 
         bool has_event_top = false;
         bool has_run_preamble = false;
@@ -384,9 +463,13 @@ std::map<std::string, std::int32_t> ParsedFzEvent::populate_zebra_store(
     ZebraStoreView& store, std::int32_t start_lq_offset) const {
   std::map<std::string, std::int32_t> heads;
   std::map<std::string, std::int32_t> tails;
+  std::unordered_map<std::int32_t, std::int32_t> orig_to_new;
+  std::vector<std::pair<std::size_t, std::int32_t>> placed;
+  placed.reserve(banks.size());
   std::int32_t cursor = std::max<std::int32_t>(32, start_lq_offset);
 
-  for (const auto& b : banks) {
+  for (std::size_t idx = 0; idx < banks.size(); ++idx) {
+    const auto& b = banks[idx];
     const std::int32_t nl_alloc = std::max<std::int32_t>(b.nl, 0);
     const std::int32_t nd_alloc = std::max<std::int32_t>(b.nd, 0);
     const std::int32_t l = cursor + nl_alloc + 10;
@@ -413,14 +496,42 @@ std::map<std::string, std::int32_t> ParsedFzEvent::populate_zebra_store(
       store.set_iq(l + 1 + k, b.iwords[static_cast<std::size_t>(k)]);
     }
 
+    if (b.orig_addr > 0) {
+      orig_to_new[b.orig_addr] = l;
+    }
+    placed.emplace_back(idx, l);
+
     if (auto it = tails.find(b.idh); it != tails.end()) {
-      store.set_lq(it->second, l);
+      if (orig_to_new.empty()) {
+        store.set_lq(it->second, l);
+      }
       it->second = l;
     } else {
       heads[b.idh] = l;
       tails[b.idh] = l;
     }
     cursor = needed_lq_end + 8;
+  }
+
+  if (!orig_to_new.empty()) {
+    auto remap = [&](std::int32_t old_addr) -> std::int32_t {
+      if (old_addr <= 0) {
+        return 0;
+      }
+      const auto it = orig_to_new.find(old_addr);
+      return (it != orig_to_new.end()) ? it->second : 0;
+    };
+    for (const auto& [idx, l] : placed) {
+      const auto& b = banks[idx];
+      store.set_lq(l, remap(b.next_link));
+      store.set_lq(l + 1, remap(b.up_link));
+      const std::int32_t nl_alloc = std::max<std::int32_t>(b.nl, 0);
+      for (std::int32_t j = 0; j < nl_alloc; ++j) {
+        const std::int32_t old_lv =
+            (static_cast<std::size_t>(j) < b.links.size()) ? b.links[j] : 0;
+        store.set_lq(l - (j + 1), remap(old_lv));
+      }
+    }
   }
   return heads;
 }

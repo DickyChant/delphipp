@@ -36,6 +36,10 @@ struct TofSectorPose {
 
 [[nodiscard]] TofSectorPose sector_pose(std::int32_t sector_1based) noexcept;
 
+// Unpack FASTBUS TDC raw-data blocklet words (tofana.car lines 3306-3455) into TofCounterHit.
+[[nodiscard]] std::vector<TofCounterHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 // Port of SUBROUTINE EFSPA: creates TOF TDR banks directly in TanagraStore
 // for calibrated counter hits and (optionally) pre-95 multihit sectors.
 // Returns the created TDR IDs.

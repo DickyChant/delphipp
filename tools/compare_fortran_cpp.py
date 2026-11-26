@@ -84,10 +84,13 @@ def compare_reports(fortran_text: str, cpp_summary: dict[str, Any], label: str) 
         c_run = int(ce.get("run", 0))
         c_evt = int(ce.get("event", -1))
         c_top = str(ce.get("top_bank", "")).strip() or "?"
+        c_dets = ce.get("detectors", {})
+        det_str = ",".join(f"{k}:{v}" for k, v in sorted(c_dets.items()))
+        det_suffix = f", dets=[{det_str}]" if det_str else ""
         lines.append(
             f"  [#{i+1}] F77(run={fe.run}, evt={fe.event}, top={fe.top}, banks={fe.banks}) "
             f"<-> C++(run={c_run}, evt={c_evt}, top={c_top}, banks={ce.get('zebra_banks')}, "
-            f"blk={ce.get('raw_blocklets')}, dst={ce.get('dst_particles')}, E_vis={ce.get('visible_energy_gev')})"
+            f"blk={ce.get('raw_blocklets')}, dst={ce.get('dst_particles')}, E_vis={ce.get('visible_energy_gev')}{det_suffix})"
         )
         if fe.run != 0 and c_run != 0 and abs(fe.run) != abs(c_run):
             lines.append(f"  FAIL: Run mismatch at #{i+1}: Fortran={fe.run} vs C++={c_run}")

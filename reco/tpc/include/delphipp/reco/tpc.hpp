@@ -49,6 +49,11 @@ struct TpcSpacePoint {
   float charge = 0.0f;
 };
 
+// Unpack FADC raw-data blocklet words (tpcana.car) into TpcPadHit objects.
+[[nodiscard]] std::vector<TpcPadHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    const TpcCalibration& calib = {});
+
 // Reconstruct TPC z coordinate from FADC time bin and ABST0 calibration.
 [[nodiscard]] float reconstruct_z(std::int32_t endplate,
                                   float time_bin,

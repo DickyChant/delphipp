@@ -357,6 +357,109 @@ int main() {
     assert(parsed.events[1].event_number == 2);
   }
 
+  // 5. Test CERNLIB ZEBRA relocation table tree: TOP -> RAW -> RTPC/RHAC -> RAWD
+  {
+    const std::size_t phys_words = 256;
+    std::vector<std::uint32_t> words;
+    for (const auto sw : kFzSyncWords) words.push_back(sw);
+    words.push_back(static_cast<std::uint32_t>(phys_words));
+    words.push_back(0u);
+    words.push_back(8u);
+    words.push_back(0u);
+
+    // Construct contiguous bank material starting at orig_lo = 1000:
+    //   RAWD (nl=0, ns=0, nd=2) at L_orig=1000
+    //   RTPC (nl=5, ns=5, nd=2, link[5]=1000) at L_orig=1016
+    //   RAW  (nl=22, ns=22, nd=2, link[8]=1016) at L_orig=1049
+    //   TOP  (nl=7, ns=7, nd=1, link[1]=1049) at L_orig=1089
+    std::vector<std::uint32_t> mat;
+    auto push_bank = [&](const char idh[4],
+                         std::int32_t nl,
+                         std::int32_t ns,
+                         const std::vector<std::pair<std::int32_t, std::int32_t>>& set_links,
+                         const std::vector<std::int32_t>& data) -> std::int32_t {
+      const std::size_t start_off = mat.size();
+      const std::int32_t orig_l = 1000 + static_cast<std::int32_t>(start_off) + nl;
+      std::vector<std::int32_t> links(static_cast<std::size_t>(nl), 0);
+      for (const auto& [k, target] : set_links) {
+        links[static_cast<std::size_t>(k - 1)] = target;
+      }
+      // In ZEBRA memory: LQ(L-NL)..LQ(L-1) followed by LQ(L)=next, LQ(L+1)=up, LQ(L+2)=orig
+      for (std::int32_t j = nl; j >= 1; --j) {
+        mat.push_back(static_cast<std::uint32_t>(links[static_cast<std::size_t>(j - 1)]));
+      }
+      mat.push_back(0u);  // next
+      mat.push_back(0u);  // up
+      mat.push_back(0u);  // orig
+      mat.push_back(1u);  // idn
+      mat.push_back(static_cast<std::uint32_t>(ascii_to_word(idh)));
+      mat.push_back(static_cast<std::uint32_t>(nl));
+      mat.push_back(static_cast<std::uint32_t>(ns));
+      mat.push_back(static_cast<std::uint32_t>(data.size()));
+      mat.push_back(0u);  // status
+      for (std::int32_t d : data) mat.push_back(static_cast<std::uint32_t>(d));
+      return orig_l;
+    };
+
+    const std::int32_t orig_rawd = push_bank("RAWD", 0, 0, {}, {6, 42});
+    const std::int32_t orig_rtpc = push_bank("RTPC", 5, 5, {{5, orig_rawd}}, {15, 0});
+    const std::int32_t orig_raw = push_bank("RAW ", 22, 22, {{8, orig_rtpc}}, {15, 0});
+    const std::int32_t orig_top = push_bank("TOP ", 7, 7, {{1, orig_raw}}, {1});
+
+    const std::int32_t nwbk = static_cast<std::int32_t>(mat.size());
+    const std::int32_t nwuhio = 10;
+    const std::int32_t nwtab = 2;
+    const std::int32_t nwlr = 10 + nwuhio + nwtab + nwbk;
+    words.push_back(static_cast<std::uint32_t>(nwlr));
+    words.push_back(2u);
+    words.push_back(std::bit_cast<std::uint32_t>(12345.0f));
+    words.push_back(37700u);
+    words.push_back(0u);
+    words.push_back(0u);
+    words.push_back(0u);
+    words.push_back(0u);
+    words.push_back(static_cast<std::uint32_t>(nwtab));
+    words.push_back(static_cast<std::uint32_t>(nwbk));
+    words.push_back(static_cast<std::uint32_t>(orig_top));
+    words.push_back(static_cast<std::uint32_t>(nwuhio));
+    words.push_back(2u);  // IO char
+    for (int i = 1; i <= 9; ++i) {
+      words.push_back((i == 6) ? static_cast<std::uint32_t>(-47014)
+                               : ((i == 9) ? 1u : 0u));
+    }
+    words.push_back(1000u);
+    words.push_back(static_cast<std::uint32_t>(1000 + nwbk));  // exclusive segment pair
+    words.insert(words.end(), mat.begin(), mat.end());
+    while (words.size() < phys_words) words.push_back(0u);
+
+    std::string bytes(words.size() * 4, '\0');
+    for (std::size_t i = 0; i < words.size(); ++i) {
+      const std::uint32_t v = words[i];
+      bytes[i * 4 + 0] = static_cast<char>((v >> 24) & 0xFFu);
+      bytes[i * 4 + 1] = static_cast<char>((v >> 16) & 0xFFu);
+      bytes[i * 4 + 2] = static_cast<char>((v >> 8) & 0xFFu);
+      bytes[i * 4 + 3] = static_cast<char>(v & 0xFFu);
+    }
+
+    std::istringstream fz(bytes, std::ios::binary);
+    const auto parsed = parse_fz_stream(fz);
+    assert(parsed.events.size() == 1);
+    OwnedZebraStore zs(4096);
+    auto zv = zs.view();
+    const auto heads = parsed.events[0].populate_zebra_store(zv);
+    const std::int32_t ltop = heads.at("TOP ");
+    const std::int32_t lraw = zv.bank_link(ltop, 1);
+    assert(lraw > 0);
+    assert(zv.bank_idh(lraw) == "RAW ");
+    const std::int32_t lrtpc = zv.bank_link(lraw, 8);
+    assert(lrtpc > 0);
+    assert(zv.bank_idh(lrtpc) == "RTPC");
+    const std::int32_t lrawd = zv.bank_link(lrtpc, 5);
+    assert(lrawd > 0);
+    assert(zv.bank_idh(lrawd) == "RAWD");
+    assert(zv.bank_idata(lrawd, 2) == 42);
+  }
+
   std::cout << "test_fz_zebra_parser: PASS\n";
   return 0;
 }

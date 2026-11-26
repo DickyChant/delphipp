@@ -60,6 +60,11 @@ struct HadCluster {
     std::span<const HadTowerHit> towers,
     float min_cluster_energy_gev = 0.3f);
 
+// Unpack FASTBUS raw-data words (hadana.car lines 851-890, 0x5A5A/0xA5A5 or DELSIM RAWD)
+// into calibrated HadTowerHit objects.
+[[nodiscard]] std::vector<HadTowerHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 // Write reconstructed HAC clusters as TER banks into TanagraStore.
 std::vector<TanagraId> write_ter_banks(
     TanagraStore& store,
