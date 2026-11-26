@@ -48,6 +48,10 @@ struct HpcShower {
   std::int32_t num_hits = 0;
 };
 
+[[nodiscard]] std::vector<HpcChargeHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    const HpcConfig& cfg = {});
+
 [[nodiscard]] std::vector<HpcShower> reconstruct_showers(
     std::span<const HpcChargeHit> hits,
     const HpcConfig& cfg = {});

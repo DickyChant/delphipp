@@ -4,9 +4,14 @@
 #include "delphipp/db/condition_db.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
+
+#include "delphipp/db/cargo_decoder.hpp"
+#include "delphipp/db/kapack_reader.hpp"
 
 namespace delphipp::db {
 
@@ -128,6 +133,94 @@ std::size_t ConditionDatabase::load_ascii(std::istream& in) {
   }
 
   flush_current();
+  return added;
+}
+
+std::size_t ConditionDatabase::load_kapack(std::istream& in,
+                                           std::size_t max_entries) {
+  KapackReader reader(in);
+  const auto leaves = reader.list_leaf_entries(max_entries);
+  std::size_t added = 0;
+
+  auto is_plausible_yymmdd = [](std::int32_t d) noexcept {
+    return d >= 101 && d <= 991231;
+  };
+  auto is_plausible_hhmmss = [](std::int32_t t) noexcept {
+    return t >= 0 && t <= 240000;
+  };
+
+  for (const auto& entry : leaves) {
+    const std::string key =
+        trim(unpack_kapack_key(entry.key_words, reader.header().max_pack));
+    if (key.empty() || entry.payload_words.empty()) {
+      continue;
+    }
+
+    std::vector<std::string> parts;
+    std::string cur;
+    for (const char ch : key) {
+      if (ch == ':' || ch == '/' || std::isspace(static_cast<unsigned char>(ch))) {
+        if (!cur.empty()) {
+          parts.push_back(std::move(cur));
+          cur.clear();
+        }
+      } else {
+        cur.push_back(ch);
+      }
+    }
+    if (!cur.empty()) {
+      parts.push_back(std::move(cur));
+    }
+    if (parts.empty()) {
+      continue;
+    }
+
+    ConditionRecord rec;
+    if (parts.size() >= 3) {
+      rec.table = parts[0];
+      rec.path = parts[1];
+      rec.field = parts[2];
+    } else if (parts.size() == 2) {
+      rec.table = parts[0];
+      rec.path = parts[1];
+      rec.field = "DATA";
+    } else {
+      rec.table = "CALB";
+      rec.path = parts[0];
+      rec.field = "DATA";
+    }
+
+    if (rec.path.size() >= 2 &&
+        rec.path.compare(rec.path.size() - 2, 2, ".W") == 0) {
+      rec.is_word_update = true;
+      rec.path = rec.path.substr(0, rec.path.size() - 2);
+    }
+
+    std::size_t data_offset = 0;
+    const auto& pw = entry.payload_words;
+    if (pw.size() > 4 && is_plausible_yymmdd(pw[0]) &&
+        is_plausible_hhmmss(pw[1]) && is_plausible_yymmdd(pw[2]) &&
+        is_plausible_hhmmss(pw[3])) {
+      rec.valid_from = DbTimestamp{pw[0], pw[1]};
+      rec.entered_on = DbTimestamp{pw[2], pw[3]};
+      data_offset = 4;
+    } else {
+      rec.valid_from = DbTimestamp{800101, 0};
+      rec.entered_on = DbTimestamp{940101, 0};
+    }
+
+    std::int32_t word_idx = 1;
+    for (std::size_t i = data_offset; i < pw.size(); ++i, ++word_idx) {
+      const float val = std::bit_cast<float>(pw[i]);
+      if (std::isfinite(val)) {
+        rec.words[word_idx] = val;
+      }
+    }
+    if (!rec.words.empty()) {
+      records_.push_back(std::move(rec));
+      ++added;
+    }
+  }
   return added;
 }
 

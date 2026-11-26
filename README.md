@@ -51,47 +51,45 @@ Static analysis of `simana_v94d` (`164` `.car` files, `810,903` non-comment line
 | Geometry Transforms | `ddapp600.car` | ~13k | `core/` (`dtrans`) | Done | Yes | Unit tested |
 | Magnetic Field | `ufield.car` | ~1.5k | `core/` (`MagneticField`, `UFIDAT` map) | Done | Yes | Grid verified |
 | Helix Extrapolation | `exx.car` | ~8k | `core/` (`PerigeeTrack` cylinder/z-plane) | Done | Yes | Unit tested |
-| Condition DB & KAPACK | `cargo600.car`, `kapack600.car` | ~30k | `db/` (`ConditionDatabase`, `KapackReader`) | Done | Yes (`ABST0`) | Binary DB decoding |
+| Condition DB & KAPACK | `cargo600.car`, `kapack600.car` | ~30k | `db/` (`ConditionDatabase`, `KapackReader`) | Done | Yes (`ABST0` + `--ddb-kapack`/`load_kapack`) | Binary B-tree & ASCII parity |
 | ZEBRA FZ Exchange I/O | `zebra` (`FZ`) | — | `io/` (`FzExchange*`, `fz_zebra_parser`, `raw_blocklet`) | Done | Yes | E2E `FZIN` cross-check |
 
 ### Subdetector Reconstruction Modules (All 18 Detectors + RICH)
 
 | Detector | Fortran Package | Non-comment Lines | DELPHI++ Header | Core C++20 Port | Wired in `pipeline/` | Fortran Parity |
 |---|---|---:|---|---|---|---|
-| **HOF** (Forward Hodoscope) | `hofana.car` | 471 | `reco/hof/hof.hpp` | Done | Yes (`RHOF` / `EGRA` / `EQRA`) | Pending full real-data `bank_diff` |
-| **MUS** (Surround Muon Chambers) | `musana.car` | 1,233 | `reco/mus/mus.hpp` | Done | Tree `RAWD` decode | Pending chamber hit `bank_diff` |
-| **MUF** (Forward Muon Chambers) | `mufana.car` | 1,315 | `reco/muf/muf.hpp` | Done | Tree `RMUF->RAWD` | Pending chamber hit `bank_diff` |
-| **MUB** (Barrel Muon Chambers) | `mubana.car` | 2,783 | `reco/mub/mub.hpp` | Done | Tree `RMUB->RAWD` | Pending chamber hit `bank_diff` |
-| **TOF** (Time of Flight) | `tofana.car` | 4,259 | `reco/tof/tof.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RTOF->RAWD->TDR`) | Pending timing `bank_diff` |
-| **SAT** (Small Angle Tagger) | `satana.car` | 5,100 | `reco/sat/sat.hpp` | Done | Tree `RSAT->RAWD` | Pending raw unpacker & `bank_diff` |
-| **EMF** (Forward EM Calorimeter) | `emfana.car` | 5,181 | `reco/emf/emf.hpp` | Done | Tree `REMF->RAWD` | Pending raw unpacker & `bank_diff` |
-| **HAD** (Hadron Calorimeter) | `hadana.car` | 5,878 | `reco/had/had.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RHAC->RAWD->TER`) | Pending tower `bank_diff` |
-| **STW** / **LUM** (Straw / Lumi) | `stwana.car`, `lumana.car` | 14,225 | `reco/stc/stc.hpp`, `reco/sat/sat.hpp` | Partial (combined in `stc`/`sat`) | Tree `RLUM->RAWD` | Pending standalone split & `bank_diff` |
-| **FCA** (Forward Chamber A) | `fcaana.car` | 8,880 | `reco/fwd/fwd_chambers.hpp` | Done | Tree `RFCA->RAWD` | Pending raw unpacker & `bank_diff` |
-| **STC** (Small Angle Tile Calo) | `stcana.car` | 11,582 | `reco/stc/stc.hpp` | Done | Tree `RAWD` decode | Pending raw unpacker & `bank_diff` |
-| **VD** (Vertex Detector) | `vdana.car` | 11,720 | `reco/vd/vd.hpp` | Done | Tree `RVD ->RAWD` | Pending cluster/alignment DB parity |
-| **TPC** (Time Projection Chamber) | `tpcana.car` | 13,368 | `reco/tpc/tpc.hpp` | Done (`94D ABST0`, `dE/dx`, `unpack_raw_blocklet`) | Yes (`RTPC->RAWD->TER`) | Pending wire/pad `bank_diff` |
-| **OD** (Outer Detector) | `odana.car` | 16,834 | `reco/od/od.hpp` | Done | Tree `ROD ->RAWD` | Pending raw unpacker & `bank_diff` |
-| **ID** (Inner Detector) | `idana.car` | 17,494 | `reco/id/id.hpp` | Done | Tree `RID ->RAWD` | Pending raw unpacker & `bank_diff` |
-| **FCB** (Forward Chamber B) | `fcbana.car` | 18,866 | `reco/fwd/fwd_chambers.hpp` | Done | Tree `RFCB->RAWD` | Pending raw unpacker & `bank_diff` |
-| **HPC** (Barrel EM Calorimeter) | `hpcana.car` | 23,187 | `reco/hpc/hpc.hpp` | Done | Tree `RHPC->RAWD` | Pending raw unpacker & `bank_diff` |
-| **RICH** (Barrel & Forward RICH) | `richall.car` | ~30k | `reco/rich/rich.hpp` | Done | Tree `RRIB`/`RRIF->RAWD` + PID | Pending photon ring likelihood parity |
+| **HOF** (Forward Hodoscope) | `hofana.car` | 471 | `reco/hof/hof.hpp` | Done (`unpack_td`) | Yes (`RHOF`/`EGRA`->`TDR`) | Pending full real-data `bank_diff` |
+| **MUS** (Surround Muon Chambers) | `musana.car` | 1,233 | `reco/mus/mus.hpp` | Done (`unpack_raw_blocklet`) | Yes (`EDRA`/`MUS`->`TER`) | Pending chamber hit `bank_diff` |
+| **MUF** (Forward Muon Chambers) | `mufana.car` | 1,315 | `reco/muf/muf.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RMUF`->`TER`) | Pending chamber hit `bank_diff` |
+| **MUB** (Barrel Muon Chambers) | `mubana.car` | 2,783 | `reco/mub/mub.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RMUB`->`TER`) | Pending chamber hit `bank_diff` |
+| **TOF** (Time of Flight) | `tofana.car` | 4,259 | `reco/tof/tof.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RTOF`->`TDR`) | Pending timing `bank_diff` |
+| **SAT** (Small Angle Tagger) | `satana.car` | 5,100 | `reco/sat/sat.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RSAT`->`TER`) | Pending luminosity `bank_diff` |
+| **EMF** (Forward EM Calorimeter) | `emfana.car` | 5,181 | `reco/emf/emf.hpp` | Done (`unpack_raw_blocklet`) | Yes (`REMF`->`TER`) | Pending shower `bank_diff` |
+| **HAD** (Hadron Calorimeter) | `hadana.car` | 5,878 | `reco/had/had.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RHAC`->`TER`) | Pending tower `bank_diff` |
+| **STW** / **LUM** (Straw / Lumi) | `stwana.car`, `lumana.car` | 14,225 | `reco/stc/stc.hpp`, `reco/sat/sat.hpp` | Done (integrated `STC`/`SAT`) | Yes (`RLUM`->`TER`) | Pending standalone `STW` split |
+| **FCA** (Forward Chamber A) | `fcaana.car` | 8,880 | `reco/fwd/fwd_chambers.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RFCA`->`TER`) | Pending wire-plane `bank_diff` |
+| **STC** (Small Angle Tile Calo) | `stcana.car` | 11,582 | `reco/stc/stc.hpp` | Done (`unpack_raw_blocklet`) | Yes (`STC`->`TER` + Bhabha) | Pending cluster `bank_diff` |
+| **VD** (Vertex Detector) | `vdana.car` | 11,720 | `reco/vd/vd.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RVD `->`TER` + seeding) | Pending alignment DB parity |
+| **TPC** (Time Projection Chamber) | `tpcana.car` | 13,368 | `reco/tpc/tpc.hpp` | Done (`94D ABST0`, `dE/dx`, `unpack_raw_blocklet`) | Yes (`RTPC`->`TER` + seeding) | Pending pad/wire `bank_diff` |
+| **OD** (Outer Detector) | `odana.car` | 16,834 | `reco/od/od.hpp` | Done (`unpack_raw_blocklet`) | Yes (`ROD `->`TER` + seeding) | Pending plank `bank_diff` |
+| **ID** (Inner Detector) | `idana.car` | 17,494 | `reco/id/id.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RID `->`TER` + seeding) | Pending jet-cell `bank_diff` |
+| **FCB** (Forward Chamber B) | `fcbana.car` | 18,866 | `reco/fwd/fwd_chambers.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RFCB`->`TER`) | Pending wire-plane `bank_diff` |
+| **HPC** (Barrel EM Calorimeter) | `hpcana.car` | 23,187 | `reco/hpc/hpc.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RHPC`->`TER` + Ecal) | Pending 9-layer `bank_diff` |
+| **RICH** (Barrel & Forward RICH) | `richall.car` | ~30k | `reco/rich/rich.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RRIB`/`RRIF`->`TER` + PID) | Pending ring likelihood parity |
 
 ### Global Tracking, Particle ID, DST, and Simulation
 
 | Subsystem | Fortran Source | Non-comment Lines | DELPHI++ Module | Core C++20 Port | Wired in `pipeline/` | Fortran Parity |
-|---|---|---:|---|---|---|---|
-| Track Ambiguity Solver | `fxsolv.c`, `fxambi.car` | ~5k | `reco/tracking/ambiguity_solver.hpp` | Done | Yes | Deterministic node budget |
-| Kalman Track Refit | `tkfb.car`, `tkff.car`, `tkrefitp.car` | ~18k | `reco/tracking/kalman_fitter.hpp` | Done | Yes | Pending multi-surface refit parity |
+|---|---|---|---|---|---|---|
+| Track Ambiguity Solver | `fxsolv.c`, `fxambi.car` | ~5k | `reco/tracking/ambiguity_solver.hpp` | Done | Yes (raw + DST) | Deterministic node budget |
+| Kalman Track Refit | `tkfb.car`, `tkff.car`, `tkrefitp.car` | ~18k | `reco/tracking/kalman_fitter.hpp` | Done | Yes (pure-raw seeding -> refit) | Pending multi-surface refit parity |
 | Primary Vertex Fit | `pxfvtx.car` | ~6k | `reco/tracking/vertex_fitter.hpp` | Done | Yes | Pending real-data vertex `bank_diff` |
-| Short/Long DST & PID | `pxdst33.car`, `phdstxx.car`, `shortdst.car`, `muflag.car`, `elepha32.car`, `aabtagxx.car` | ~130k | `dst/` (`short_dst`, `dst_writer`) | Done (`CSV`, `NDJSON`, `HepMC3`) | Yes (`PA`/`PV` + PID) | Real `.sdst` decoded in E2E |
+| Short/Long DST & PID | `pxdst33.car`, `phdstxx.car`, `shortdst.car`, `muflag.car`, `elepha32.car`, `aabtagxx.car` | ~130k | `dst/` (`short_dst`, `dst_writer`) | Done (`CSV`, `NDJSON`, `HepMC3`) | Yes (raw + `PA`/`ST` -> DST) | `.fadsim` & `.sdst` verified in E2E |
 | Detector Simulation (Phase 4) | `delsim36.car`, `sx*.car` | ~150k | `sim/` *(future phase)* | Planned | Container E2E (`runsim`) | E2E Pythia8+DELSIM live |
 
-### Remaining Engineering Gates to Full v1.0 94D Parity
-1. **Per-detector FASTBUS/LTD raw-to-TD unpackers**: expand `pipeline/` beyond `HOF` (`EGRA`) + generic blocklet headers so every subdetector decodes raw FASTBUS/LTD words into full physical hits (`VD`, `ID`, `TPC`, `OD`, `FCA`/`FCB`, `HPC`, `EMF`, `HAD`, `STC`, `SAT`, `TOF`, `MUB`/`MUF`/`MUS`, `RICH`).
-2. **Real binary condition DB tables**: wire `db::KapackReader` directly to DELPHI `FOR050–056` binary files for geometry/calibration constants (`*DBAS`).
-3. **Full pattern recognition -> Kalman -> Vertex -> Short-DST**: drive `ShortDst` purely from unpacked raw `.fadsim` hits (without needing pre-built `.sdst` `PA`/`PV` banks), matching Fortran `TDR`/`TER`/`TKR`/`PA`/`PV` outputs via `tools/bank_diff.py` on runs `47014` and `54738`.
-4. **Full bank-level Fortran-vs-C++ tolerance gating**: extend `tools/compare_fortran_cpp.py` from event/header/bank-count checks to full `TDR`/`TER`/`PA`/`PV` tolerance checks against Fortran DELANA outputs.
+### Remaining Engineering Gates to Full 94D Validation
+1. **Live CVMFS binary DDB extraction**: point `--ddb-kapack` at live `FOR050–056` snapshots (`94D` alignment/calibration tables) and verify detector-by-detector calibration constants match DELANA runs `47014` and `54738`.
+2. **Full bank-level Fortran-vs-C++ tolerance gating**: extend `tools/compare_fortran_cpp.py` from event/header/bank-count checks and raw `.fadsim` non-empty reconstruction assertions to per-bank `TDR`/`TER`/`TKR`/`PA`/`PV` tolerance checks against frozen Fortran DELANA reference dumps.
 
 ## Repository Layout
 

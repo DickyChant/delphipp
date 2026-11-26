@@ -5,8 +5,41 @@
 
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace delphipp::reco::rich {
+
+std::vector<RichPhotonHit> unpack_raw_blocklet(std::span<const std::int32_t> words,
+                                               std::int32_t detector_id) {
+  std::vector<RichPhotonHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t tdc = u & 0x3FFu;
+    if (tdc == 0u) {
+      continue;
+    }
+    const std::int32_t sector = static_cast<std::int32_t>((u >> 10) & 0x1Fu) % 24 + 1;
+    const float theta_c_rad = 0.02f + static_cast<float>(tdc % 640u) * 0.001f;
+    const float phi_rad = (static_cast<float>(sector - 1) + 0.5f) * (kTwoPi / 24.0f);
+    const float z_cm = (detector_id == kDetectorIdBrich)
+                           ? (static_cast<float>((u >> 16) & 0xFFu) - 128.0f)
+                           : (((u >> 15) & 1u) ? -185.0f : 185.0f);
+    hits.push_back(RichPhotonHit{
+        .detector_id = detector_id,
+        .sector = sector,
+        .phi_rad = phi_rad,
+        .theta_c_rad = theta_c_rad,
+        .z_cm = z_cm,
+    });
+  }
+  return hits;
+}
 
 std::optional<float> expected_cherenkov_angle(float momentum_gev,
                                               float mass_gev,

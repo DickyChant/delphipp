@@ -37,6 +37,11 @@ struct ForwardSegment {
   std::int32_t num_planes = 0;
 };
 
+// Decode raw FCA/FCB blocklet words into ForwardWireHits.
+[[nodiscard]] std::vector<ForwardWireHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    std::int32_t detector_id = kDetectorIdFca);
+
 // Solve (x, y) from >= 2 non-collinear wire-plane measurements via weighted least squares.
 [[nodiscard]] std::optional<ForwardSegment> fit_segment(
     std::span<const ForwardWireHit> hits) noexcept;

@@ -34,6 +34,9 @@ struct IdSegment {
   std::int32_t num_hits = 0;
 };
 
+[[nodiscard]] std::vector<IdJetHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 [[nodiscard]] std::vector<IdSegment> reconstruct_segments(
     std::span<const IdJetHit> hits,
     float v_drift_cm_per_ns = 0.0040f);

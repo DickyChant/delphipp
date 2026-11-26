@@ -36,6 +36,9 @@ struct SatCluster {
   std::int32_t num_hits = 0;
 };
 
+[[nodiscard]] std::vector<SatElementHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 [[nodiscard]] std::vector<SatCluster> reconstruct_clusters(
     std::span<const SatElementHit> hits,
     float min_energy_gev = 1.0f);

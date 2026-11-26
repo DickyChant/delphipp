@@ -8,6 +8,33 @@
 
 namespace delphipp::reco::id {
 
+std::vector<IdJetHit> unpack_raw_blocklet(std::span<const std::int32_t> words) {
+  std::vector<IdJetHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t tdc = u & 0x3FFu;
+    if (tdc == 0u) {
+      continue;
+    }
+    const std::int32_t wire = static_cast<std::int32_t>((u >> 10) & 0x1Fu) % 24 + 1;
+    const std::int32_t sector = static_cast<std::int32_t>((u >> 15) & 0x1Fu) % kNumSectors + 1;
+    const int lr_sign = ((u >> 20) & 1u) ? -1 : +1;
+    hits.push_back(IdJetHit{
+        .sector = sector,
+        .wire = wire,
+        .r_cm = 11.8f + static_cast<float>(wire - 1) * (10.5f / 23.0f),
+        .drift_time_ns = static_cast<float>(tdc) * 2.0f,
+        .lr_sign = lr_sign,
+    });
+  }
+  return hits;
+}
+
 std::vector<IdSegment> reconstruct_segments(std::span<const IdJetHit> hits,
                                             float v_drift_cm_per_ns) {
   constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;

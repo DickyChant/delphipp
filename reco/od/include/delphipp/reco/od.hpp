@@ -37,6 +37,9 @@ struct OdTrackElement {
   std::int32_t num_layers = 0;
 };
 
+[[nodiscard]] std::vector<OdTubeHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 [[nodiscard]] std::vector<OdTrackElement> reconstruct_planks(
     std::span<const OdTubeHit> hits,
     float v_prop_cm_per_ns = 20.0f);

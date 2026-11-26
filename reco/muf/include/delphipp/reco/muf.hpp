@@ -11,6 +11,8 @@
 #include <span>
 #include <vector>
 
+#include "delphipp/tanagra_store.hpp"
+
 namespace delphipp::reco::muf {
 
 inline constexpr std::int32_t kDetectorId = 30;  // MUF detector code
@@ -106,5 +108,11 @@ struct DelayLineResult {
     std::span<const MufRawTriplet> triplets,
     const MufCalibration& calib,
     const MufConfig& cfg = {});
+
+[[nodiscard]] std::vector<MufRawTriplet> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
+std::vector<TanagraId> write_ter_banks(TanagraStore& store,
+                                       std::span<const MufSpaceHit> hits);
 
 }  // namespace delphipp::reco::muf

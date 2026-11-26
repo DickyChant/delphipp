@@ -138,4 +138,52 @@ std::vector<MufSpaceHit> reconstruct_hits(std::span<const MufRawTriplet> triplet
   return hits;
 }
 
+std::vector<MufRawTriplet> unpack_raw_blocklet(std::span<const std::int32_t> words) {
+  std::vector<MufRawTriplet> out;
+  if (words.size() < 4) {
+    return out;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t ta_raw = u & 0x3FFu;
+    if (ta_raw == 0u) {
+      continue;
+    }
+    const float ta_ns = static_cast<float>(ta_raw) * 2.0f;
+    const std::int32_t quadrant = static_cast<std::int32_t>((u >> 10) & 0xFu) + 1;
+    const std::int32_t chamber = static_cast<std::int32_t>((u >> 14) & 0x1Fu) % 22 + 1;
+    const std::int32_t layer = static_cast<std::int32_t>((u >> 19) & 1u) + 1;
+    out.push_back(MufRawTriplet{
+        .quadrant = quadrant,
+        .chamber = chamber,
+        .layer = layer,
+        .ta_ns = ta_ns,
+        .tl1_ns = ta_ns + 40.0f,
+        .tl2_ns = ta_ns + 40.0f,
+        .vline_cm_per_ns = 15.0f,
+        .chamber_len_cm = 300.0f,
+        .time_sum_ns = 80.0f,
+    });
+  }
+  return out;
+}
+
+std::vector<TanagraId> write_ter_banks(TanagraStore& store,
+                                       std::span<const MufSpaceHit> hits) {
+  std::vector<TanagraId> ids;
+  ids.reserve(hits.size());
+  for (const auto& h : hits) {
+    ids.push_back(store.add_ter(TerBank{
+        .detector_id = kDetectorId,
+        .submod_id = h.encoded_id,
+        .descriptor = 125,
+        .fwords = {h.x_wire_cm, h.drift_dist_cm, h.x_on_line_cm,
+                   static_cast<float>(h.quadrant)},
+    }));
+  }
+  return ids;
+}
+
 }  // namespace delphipp::reco::muf

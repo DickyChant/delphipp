@@ -38,6 +38,9 @@ struct StcCluster {
   std::int32_t num_towers = 0;
 };
 
+[[nodiscard]] std::vector<StcTowerHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 [[nodiscard]] std::vector<StcCluster> find_clusters(
     std::span<const StcTowerHit> towers,
     float min_cluster_energy_gev = 0.5f);

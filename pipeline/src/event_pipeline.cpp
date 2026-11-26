@@ -6,23 +6,114 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numbers>
 #include <unordered_set>
 #include <vector>
 
 #include "delphipp/helix.hpp"
 #include "delphipp/io/raw_blocklet.hpp"
 #include "delphipp/reco/ambiguity_solver.hpp"
+#include "delphipp/reco/emf.hpp"
+#include "delphipp/reco/fwd_chambers.hpp"
 #include "delphipp/reco/had.hpp"
 #include "delphipp/reco/hof.hpp"
+#include "delphipp/reco/hpc.hpp"
+#include "delphipp/reco/id.hpp"
 #include "delphipp/reco/kalman_fitter.hpp"
+#include "delphipp/reco/mub.hpp"
+#include "delphipp/reco/muf.hpp"
+#include "delphipp/reco/mus.hpp"
+#include "delphipp/reco/od.hpp"
+#include "delphipp/reco/rich.hpp"
+#include "delphipp/reco/sat.hpp"
+#include "delphipp/reco/stc.hpp"
 #include "delphipp/reco/tof.hpp"
 #include "delphipp/reco/tpc.hpp"
+#include "delphipp/reco/vd.hpp"
 #include "delphipp/reco/vertex_fitter.hpp"
 #include "delphipp/zebra_store.hpp"
 
 namespace delphipp::pipeline {
 
 namespace {
+
+constexpr float kPi = std::numbers::pi_v<float>;
+constexpr float kTwoPi = 2.0f * kPi;
+
+float wrap_dphi(float a, float b) noexcept {
+  float d = a - b;
+  while (d > kPi) d -= kTwoPi;
+  while (d < -kPi) d += kTwoPi;
+  return d;
+}
+
+float norm_phi(float phi) noexcept {
+  while (phi < 0.0f) phi += kTwoPi;
+  while (phi >= kTwoPi) phi -= kTwoPi;
+  return phi;
+}
+
+struct RawTrackHit {
+  reco::tracking::CylinderMeasurement meas{};
+  std::int32_t ter_id = -1;
+  float dedx_sample = 0.0f;
+};
+
+struct RawCaloCluster {
+  Vec3 xyz_cm{};
+  float phi_rad = 0.0f;
+  float theta_rad = 1.5707963f;
+  float energy_gev = 0.0f;
+  bool is_ecal = true;
+  bool matched = false;
+};
+
+struct RawMuonHit {
+  float phi_rad = 0.0f;
+  float z_cm = 0.0f;
+};
+
+struct RawRichMeasurement {
+  std::int32_t detector_id = reco::rich::kDetectorIdBrich;
+  float phi_rad = 0.0f;
+  float theta_c_rad = 0.0f;
+  std::int32_t num_photons = 0;
+};
+
+reco::muf::MufCalibration make_default_muf_calib() noexcept {
+  reco::muf::MufCalibration cal{};
+  cal.vanode_cm_per_ns = 25.0f;
+  cal.wire_pitch_cm = 18.0f;
+  for (std::size_t q = 0; q < reco::muf::kNumQuadrants; ++q) {
+    const float angle = static_cast<float>(q % 4) * (0.5f * kPi);
+    cal.qgeom[q][2] = 60.0f * std::cos(angle);
+    cal.qgeom[q][3] = 60.0f * std::sin(angle);
+    cal.svdrif[q] = {0.005f, 0.005f};
+    cal.sx0par[q] = {0.5f, 0.5f};
+  }
+  return cal;
+}
+
+reco::mus::MusGeometry make_default_mus_geom() noexcept {
+  reco::mus::MusGeometry geom{};
+  for (std::size_t d = 0; d < reco::mus::kNumDetectors; ++d) {
+    const float phi = (static_cast<float>(d % 8) + 0.5f) * (kTwoPi / 8.0f);
+    const float z_off = (d < 8) ? 180.0f : -180.0f;
+    for (std::size_t l = 0; l < reco::mus::kNumLayers; ++l) {
+      geom.origin_ts1[d][l] = {-100.0f, -100.0f, 0.0f};
+      geom.pitch_ts1[d][l] = {5.0f, 5.0f};
+    }
+    for (std::size_t p = 0; p < 2; ++p) {
+      geom.local_to_delphi[d][p] = {
+          470.0f * std::cos(phi), 470.0f * std::sin(phi), z_off,
+          1.0f, 0.0f, 0.0f,
+          0.0f, 1.0f, 0.0f,
+          0.0f, 0.0f, 1.0f,
+      };
+    }
+  }
+  return geom;
+}
 
 PerigeeTrack track_from_p3_charge(float px,
                                   float py,
@@ -135,6 +226,11 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
   const auto bank_heads = ev.populate_zebra_store(zview);
 
   std::vector<dst::NeutralInput> neutrals;
+  std::vector<RawTrackHit> raw_track_hits;
+  std::vector<RawCaloCluster> raw_calo_clusters;
+  std::vector<RawMuonHit> raw_muon_hits;
+  std::vector<RawRichMeasurement> raw_rich_hits;
+  bool is_bhabha = false;
   std::unordered_set<std::int32_t> processed_rawd_links;
 
   reco::hof::HofCalibration hof_calib{};
@@ -146,6 +242,231 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
   if (abst0_val_ > 0.0f) {
     tpc_calib.abst0_bins = abst0_val_;
   }
+  const auto muf_calib = make_default_muf_calib();
+  const auto mus_geom = make_default_mus_geom();
+
+  auto push_calo_xyz = [&](const Vec3& xyz, float energy_gev, bool is_ecal) {
+    if (!std::isfinite(energy_gev) || energy_gev <= 0.0f) {
+      return;
+    }
+    const float r = std::sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
+    if (r <= 1e-3f) {
+      return;
+    }
+    raw_calo_clusters.push_back(RawCaloCluster{
+        .xyz_cm = xyz,
+        .phi_rad = norm_phi(std::atan2(xyz[1], xyz[0])),
+        .theta_rad = std::acos(std::clamp(xyz[2] / r, -1.0f, 1.0f)),
+        .energy_gev = energy_gev,
+        .is_ecal = is_ecal,
+        .matched = false,
+    });
+  };
+
+  auto decode_partition_blocklet = [&](const std::string& pname,
+                                       std::span<const std::int32_t> data) {
+    if (pname == "VD") {
+      const auto strips = reco::vd::unpack_raw_blocklet(data);
+      const auto clusters = reco::vd::find_clusters(strips);
+      const auto ter_ids = reco::vd::write_ter_banks(out.tanagra, clusters);
+      for (std::size_t k = 0; k < clusters.size(); ++k) {
+        const auto& c = clusters[k];
+        const float r_cm = (c.layer >= 1 && c.layer <= 3)
+                               ? reco::vd::kLayerRadiiCm[static_cast<std::size_t>(c.layer - 1)]
+                               : reco::vd::kLayerRadiiCm[0];
+        const float mod_phi = (static_cast<float>(c.module - 1) + 0.5f) * (kTwoPi / 24.0f);
+        const float phi_rad = c.is_z_side ? mod_phi : norm_phi(mod_phi + c.local_coord_cm / r_cm);
+        raw_track_hits.push_back(RawTrackHit{
+            .meas = {
+                .r_cm = r_cm,
+                .phi_rad = phi_rad,
+                .z_cm = c.is_z_side ? c.local_coord_cm : 0.0f,
+                .sigma_rphi_cm = 0.002f,
+                .sigma_z_cm = 0.005f,
+                .has_z = c.is_z_side,
+                .material_x0 = 0.004f,
+            },
+            .ter_id = static_cast<std::int32_t>(ter_ids[k]),
+        });
+      }
+    } else if (pname == "ID") {
+      const auto hits = reco::id::unpack_raw_blocklet(data);
+      const auto segs = reco::id::reconstruct_segments(hits);
+      const auto ter_ids = reco::id::write_ter_banks(out.tanagra, segs);
+      for (std::size_t k = 0; k < segs.size(); ++k) {
+        const auto& s = segs[k];
+        raw_track_hits.push_back(RawTrackHit{
+            .meas = {
+                .r_cm = s.r_ref_cm,
+                .phi_rad = norm_phi(s.phi_rad),
+                .z_cm = 0.0f,
+                .sigma_rphi_cm = 0.015f,
+                .sigma_z_cm = 2.0f,
+                .has_z = false,
+                .material_x0 = 0.01f,
+            },
+            .ter_id = static_cast<std::int32_t>(ter_ids[k]),
+        });
+      }
+    } else if (pname == "TPC") {
+      const auto pad_hits = reco::tpc::unpack_raw_blocklet(data, tpc_calib);
+      const auto pts = reco::tpc::reconstruct_space_points(pad_hits, tpc_calib);
+      const auto ter_ids = reco::tpc::write_ter_banks(out.tanagra, pts);
+      for (std::size_t k = 0; k < pts.size(); ++k) {
+        const auto& p = pts[k];
+        if (p.r_cm <= 1.0f) continue;
+        raw_track_hits.push_back(RawTrackHit{
+            .meas = {
+                .r_cm = p.r_cm,
+                .phi_rad = norm_phi(p.r_phi_cm / p.r_cm),
+                .z_cm = p.z_cm,
+                .sigma_rphi_cm = 0.025f,
+                .sigma_z_cm = 0.09f,
+                .has_z = true,
+                .material_x0 = 0.003f,
+            },
+            .ter_id = static_cast<std::int32_t>(ter_ids[k]),
+            .dedx_sample = p.charge * 0.025f,
+        });
+      }
+    } else if (pname == "OD") {
+      const auto tubes = reco::od::unpack_raw_blocklet(data);
+      const auto elems = reco::od::reconstruct_planks(tubes);
+      const auto ter_ids = reco::od::write_ter_banks(out.tanagra, elems);
+      for (std::size_t k = 0; k < elems.size(); ++k) {
+        const auto& e = elems[k];
+        if (e.r_cm <= 1.0f) continue;
+        raw_track_hits.push_back(RawTrackHit{
+            .meas = {
+                .r_cm = e.r_cm,
+                .phi_rad = norm_phi(e.r_phi_cm / e.r_cm),
+                .z_cm = e.z_cm,
+                .sigma_rphi_cm = 0.015f,
+                .sigma_z_cm = 3.5f,
+                .has_z = true,
+                .material_x0 = 0.015f,
+            },
+            .ter_id = static_cast<std::int32_t>(ter_ids[k]),
+        });
+      }
+    } else if (pname == "FCA" || pname == "FCB") {
+      const std::int32_t fdet = (pname == "FCB") ? reco::fwd::kDetectorIdFcb
+                                               : reco::fwd::kDetectorIdFca;
+      const auto wires = reco::fwd::unpack_raw_blocklet(data, fdet);
+      for (std::int32_t endcap = 1; endcap <= 2; ++endcap) {
+        std::vector<reco::fwd::ForwardWireHit> sub;
+        for (const auto& w : wires) {
+          if (w.endcap == endcap) sub.push_back(w);
+        }
+        if (const auto seg = reco::fwd::fit_segment(sub); seg.has_value()) {
+          const auto ter_ids = reco::fwd::write_ter_banks(out.tanagra, std::span{&(*seg), 1}, fdet);
+          const float r_xy = std::hypot(seg->x_cm, seg->y_cm);
+          if (r_xy > 10.0f && r_xy < 260.0f) {
+            raw_track_hits.push_back(RawTrackHit{
+                .meas = {
+                    .r_cm = r_xy,
+                    .phi_rad = norm_phi(std::atan2(seg->y_cm, seg->x_cm)),
+                    .z_cm = seg->z_cm,
+                    .sigma_rphi_cm = 0.05f,
+                    .sigma_z_cm = 0.5f,
+                    .has_z = true,
+                    .material_x0 = 0.02f,
+                },
+                .ter_id = static_cast<std::int32_t>(ter_ids.front()),
+            });
+          }
+        }
+      }
+    } else if (pname == "HPC") {
+      const auto hits = reco::hpc::unpack_raw_blocklet(data);
+      const auto showers = reco::hpc::reconstruct_showers(hits);
+      reco::hpc::write_ter_banks(out.tanagra, showers);
+      for (const auto& s : showers) {
+        push_calo_xyz({s.r_cm * std::cos(s.phi_rad), s.r_cm * std::sin(s.phi_rad), s.z_cm},
+                      s.energy_gev, true);
+      }
+    } else if (pname == "EMF") {
+      const auto blocks = reco::emf::unpack_raw_blocklet(data);
+      const auto clusters = reco::emf::find_clusters(blocks);
+      reco::emf::write_ter_banks(out.tanagra, clusters);
+      for (const auto& c : clusters) {
+        push_calo_xyz({c.x_cm, c.y_cm, c.z_cm}, c.energy_gev, true);
+      }
+    } else if (pname == "HAC") {
+      const auto towers = reco::had::unpack_raw_blocklet(data);
+      const auto clusters = reco::had::find_clusters(towers, 0.25f);
+      reco::had::write_ter_banks(out.tanagra, clusters);
+      for (const auto& cl : clusters) {
+        const float st = std::sin(cl.theta_rad);
+        push_calo_xyz({cl.r_cm * st * std::cos(cl.phi_rad),
+                       cl.r_cm * st * std::sin(cl.phi_rad),
+                       cl.r_cm * std::cos(cl.theta_rad)},
+                      cl.energy_gev, false);
+      }
+    } else if (pname == "STC") {
+      const auto towers = reco::stc::unpack_raw_blocklet(data);
+      const auto clusters = reco::stc::find_clusters(towers);
+      reco::stc::write_ter_banks(out.tanagra, clusters);
+      is_bhabha = is_bhabha || reco::stc::is_bhabha_candidate(clusters);
+      for (const auto& c : clusters) {
+        push_calo_xyz({c.r_cm * std::cos(c.phi_rad), c.r_cm * std::sin(c.phi_rad), c.z_cm},
+                      c.energy_gev, true);
+      }
+    } else if (pname == "SAT" || pname == "LUM") {
+      const std::int32_t sdet = (pname == "LUM") ? reco::sat::kDetectorIdVsat
+                                               : reco::sat::kDetectorIdSat;
+      const auto hits = reco::sat::unpack_raw_blocklet(data);
+      const auto clusters = reco::sat::reconstruct_clusters(hits);
+      reco::sat::write_ter_banks(out.tanagra, clusters, sdet);
+      for (const auto& c : clusters) {
+        push_calo_xyz({c.r_cm * std::cos(c.phi_rad), c.r_cm * std::sin(c.phi_rad), c.z_cm},
+                      c.energy_gev, true);
+      }
+    } else if (pname == "TOF") {
+      const auto tof_hits = reco::tof::unpack_raw_blocklet(data);
+      if (!tof_hits.empty()) {
+        reco::tof::create_td_banks(out.tanagra, tof_hits);
+      }
+    } else if (pname == "MUB") {
+      const auto hits = reco::mub::unpack_raw_blocklet(data);
+      reco::mub::write_ter_banks(out.tanagra, hits);
+      for (const auto& h : hits) {
+        raw_muon_hits.push_back(RawMuonHit{.phi_rad = norm_phi(h.phi_rad), .z_cm = h.z_cm});
+      }
+    } else if (pname == "MUF") {
+      const auto trips = reco::muf::unpack_raw_blocklet(data);
+      const auto space_hits = reco::muf::reconstruct_hits(trips, muf_calib);
+      reco::muf::write_ter_banks(out.tanagra, space_hits);
+      for (const auto& h : space_hits) {
+        const float z_cm = (h.quadrant <= 8) ? 450.0f : -450.0f;
+        const float phi_rad = norm_phi(std::atan2(h.drift_dist_cm, h.x_wire_cm));
+        raw_muon_hits.push_back(RawMuonHit{.phi_rad = phi_rad, .z_cm = z_cm});
+      }
+    } else if (pname == "MUS") {
+      const auto raw_hits = reco::mus::unpack_raw_blocklet(data);
+      const auto clusters = reco::mus::find_clusters(raw_hits);
+      const auto sp = reco::mus::combine_clusters(clusters, mus_geom);
+      const auto tes = reco::mus::build_te(sp, mus_geom);
+      reco::mus::write_ter_banks(out.tanagra, tes);
+      for (const auto& b : tes) {
+        if (b.r > 1.0f) {
+          raw_muon_hits.push_back(RawMuonHit{.phi_rad = norm_phi(b.r_phi / b.r), .z_cm = b.z});
+        }
+      }
+    } else if (pname == "RIB" || pname == "RIF") {
+      const std::int32_t rdet = (pname == "RIF") ? reco::rich::kDetectorIdFrich
+                                               : reco::rich::kDetectorIdBrich;
+      const auto photons = reco::rich::unpack_raw_blocklet(data, rdet);
+      for (const auto& ph : photons) {
+        raw_rich_hits.push_back(RawRichMeasurement{
+            .detector_id = rdet,
+            .phi_rad = norm_phi(ph.phi_rad),
+            .theta_c_rad = ph.theta_c_rad,
+            .num_photons = 1,
+        });
+      }
+    }
+  };
 
   auto process_rawd_chain = [&](const char* part_name,
                                 std::int32_t default_det_id,
@@ -174,6 +495,10 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
         flat.reserve(hof_res.hits.size() * 8);
         for (const auto& h : hof_res.hits) {
           flat.insert(flat.end(), h.words.begin(), h.words.end());
+          raw_muon_hits.push_back(RawMuonHit{
+              .phi_rad = norm_phi(h.words[2] * 0.25f),
+              .z_cm = (h.words[1] > 0.0f) ? 350.0f : -350.0f,
+          });
         }
         out.tanagra.add_tdr(TdrBank{
             .detector_id = reco::hof::kDetectorId,
@@ -211,37 +536,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
           .fwords = {abst0_val_},
           .td_refs = {tdr_id},
       });
-
-      if (pname == "HAC") {
-        const auto towers = reco::had::unpack_raw_blocklet(bl.data);
-        if (!towers.empty()) {
-          const auto clusters = reco::had::find_clusters(towers, 0.25f);
-          reco::had::write_ter_banks(out.tanagra, clusters);
-          for (const auto& cl : clusters) {
-            const float st = std::sin(cl.theta_rad);
-            neutrals.push_back(dst::NeutralInput{
-                .xyz_cm = {
-                    cl.r_cm * st * std::cos(cl.phi_rad),
-                    cl.r_cm * st * std::sin(cl.phi_rad),
-                    cl.r_cm * std::cos(cl.theta_rad),
-                },
-                .energy_gev = cl.energy_gev,
-                .is_ecal = false,
-            });
-          }
-        }
-      } else if (pname == "TOF") {
-        const auto tof_hits = reco::tof::unpack_raw_blocklet(bl.data);
-        if (!tof_hits.empty()) {
-          reco::tof::create_td_banks(out.tanagra, tof_hits);
-        }
-      } else if (pname == "TPC") {
-        const auto pad_hits = reco::tpc::unpack_raw_blocklet(bl.data, tpc_calib);
-        if (!pad_hits.empty()) {
-          const auto pts = reco::tpc::reconstruct_space_points(pad_hits, tpc_calib);
-          reco::tpc::write_ter_banks(out.tanagra, pts);
-        }
-      }
+      decode_partition_blocklet(pname, bl.data);
     }
   };
 
@@ -282,6 +577,23 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
   if (auto it = bank_heads.find("EGRA"); it != bank_heads.end()) {
     process_rawd_chain("HOF", reco::hof::kDetectorId, it->second);
   }
+  auto part_from_legacy = [](std::string_view raw_id, std::int32_t det_id) -> std::string {
+    if (raw_id == "EDRA") return "MUS";
+    if (raw_id == "VDRA") return "VD";
+    if (raw_id == "IDRA") return "ID";
+    if (raw_id == "TPRA") return "TPC";
+    if (raw_id == "ODRA") return "OD";
+    if (raw_id == "HPRA") return "HPC";
+    if (raw_id == "HARA") return "HAC";
+    if (raw_id == "EMRA") return "EMF";
+    if (raw_id == "FCRA") return "FCA";
+    if (raw_id == "RIRA") return "RIB";
+    if (raw_id == "SARA") return "SAT";
+    if (raw_id == "STRA") return "STC";
+    if (raw_id == "TORA") return "TOF";
+    if (raw_id == "MURA") return "MUB";
+    return detector_name(det_id);
+  };
   for (const char* raw_id : kLegacyRawBankIds) {
     if (std::string(raw_id) == "RAW ") {
       continue;
@@ -293,7 +605,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
           continue;
         }
         processed_rawd_links.insert(bl.bank_link);
-        std::string dname = detector_name(bl.detector_id);
+        std::string dname = part_from_legacy(raw_id, bl.detector_id);
         if (std::string(raw_id) == "EGRA" &&
             bl.detector_id == reco::hof::kModuleSim) {
           dname = "HOF";
@@ -322,6 +634,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
             .fwords = {abst0_val_},
             .td_refs = {tdr_id},
         });
+        decode_partition_blocklet(dname, bl.data);
       }
     }
   }
@@ -437,8 +750,8 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
   }
 
   // Fallback for DELSIM MC truth SIM_ records: decode ST truth banks when no PA banks exist
-  if (pa_banks.empty()) {
-    const auto st_banks = ev.find_all("ST  ");
+  const auto st_banks = ev.find_all("ST  ");
+  if (pa_banks.empty() && !st_banks.empty()) {
     for (std::size_t i = 0; i < st_banks.size(); ++i) {
       const auto* st = st_banks[i];
       if (st->fwords.size() < 8) {
@@ -482,6 +795,187 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
     }
   }
 
+  // 3b. Standalone pure-raw pattern recognition, Kalman refit & PID when no PA/ST exist
+  if (pa_banks.empty() && st_banks.empty()) {
+    std::sort(raw_track_hits.begin(), raw_track_hits.end(),
+              [](const RawTrackHit& a, const RawTrackHit& b) {
+                return a.meas.r_cm < b.meas.r_cm;
+              });
+
+    struct TrackCluster {
+      float mean_phi = 0.0f;
+      std::vector<const RawTrackHit*> hits;
+    };
+    std::vector<TrackCluster> clusters;
+    for (const auto& h : raw_track_hits) {
+      bool placed = false;
+      for (auto& cl : clusters) {
+        if (cl.hits.size() < 16u &&
+            std::fabs(wrap_dphi(h.meas.phi_rad, cl.mean_phi)) < 0.28f) {
+          const float w = static_cast<float>(cl.hits.size());
+          cl.mean_phi = norm_phi(
+              cl.mean_phi + wrap_dphi(h.meas.phi_rad, cl.mean_phi) / (w + 1.0f));
+          cl.hits.push_back(&h);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed && clusters.size() < 32u) {
+        clusters.push_back(TrackCluster{.mean_phi = h.meas.phi_rad, .hits = {&h}});
+      }
+    }
+
+    for (const auto& cl : clusters) {
+      if (cl.hits.size() < 2u) {
+        continue;
+      }
+      const auto* h_in = cl.hits.front();
+      const auto* h_out = cl.hits.back();
+      const float dr = h_out->meas.r_cm - h_in->meas.r_cm;
+      if (dr < 5.0f) {
+        continue;
+      }
+      const float dphi_bend = wrap_dphi(h_out->meas.phi_rad, h_in->meas.phi_rad);
+      float inv_r_seed = std::clamp(2.0f * dphi_bend / dr, -0.008f, 0.008f);
+      if (std::fabs(inv_r_seed) < 1e-4f) {
+        inv_r_seed = 0.0005f;
+      }
+      const float phi_seed = norm_phi(
+          h_in->meas.phi_rad - 0.5f * inv_r_seed * h_in->meas.r_cm);
+
+      double sum_th = 0.0;
+      std::size_t n_th = 0;
+      std::vector<reco::tracking::CylinderMeasurement> meas;
+      std::vector<std::int32_t> te_ids;
+      std::vector<float> dedx_samples;
+      meas.reserve(cl.hits.size());
+      te_ids.reserve(cl.hits.size());
+      for (const auto* hp : cl.hits) {
+        meas.push_back(hp->meas);
+        te_ids.push_back(hp->ter_id > 0 ? hp->ter_id : next_syn_id--);
+        if (hp->dedx_sample > 0.0f) {
+          dedx_samples.push_back(hp->dedx_sample);
+        }
+        if (hp->meas.has_z && hp->meas.r_cm > 1.0f) {
+          sum_th += std::atan2(static_cast<double>(hp->meas.r_cm),
+                               static_cast<double>(hp->meas.z_cm));
+          ++n_th;
+        }
+      }
+      const float th_seed = (n_th > 0)
+                                ? std::clamp(static_cast<float>(sum_th / static_cast<double>(n_th)),
+                                             0.15f, kPi - 0.15f)
+                                : (0.5f * kPi);
+
+      const PerigeeTrack seed{
+          .eps = 0.0f,
+          .z0 = 0.0f,
+          .theta = th_seed,
+          .phi0 = phi_seed,
+          .inv_r = inv_r_seed,
+      };
+      const auto fit = reco::tracking::kalman_refit(seed, b0.bz, meas);
+      ++out.kalman_refits;
+
+      PerigeeTrack chosen = fit.track;
+      const float pt_fit = chosen.pt_gev(b0.bz);
+      const float p_fit = chosen.p_gev(b0.bz);
+      if (!std::isfinite(chosen.eps) || !std::isfinite(chosen.z0) ||
+          !std::isfinite(chosen.theta) || !std::isfinite(chosen.phi0) ||
+          !std::isfinite(chosen.inv_r) || !std::isfinite(pt_fit) ||
+          !std::isfinite(p_fit) || pt_fit < 0.2f || pt_fit > 60.0f ||
+          p_fit > 80.0f || chosen.theta < 0.05f || chosen.theta > kPi - 0.05f) {
+        chosen = seed;
+      }
+
+      const std::int32_t q = (chosen.inv_r >= 0.0f) ? +1 : -1;
+      const float trk_phi = norm_phi(chosen.phi0);
+      float ecal_e = 0.0f;
+      float hcal_e = 0.0f;
+      for (auto& cc : raw_calo_clusters) {
+        if (std::fabs(wrap_dphi(cc.phi_rad, trk_phi)) < 0.25f &&
+            std::fabs(cc.theta_rad - chosen.theta) < 0.35f) {
+          if (cc.is_ecal) {
+            ecal_e += cc.energy_gev;
+          } else {
+            hcal_e += cc.energy_gev;
+          }
+          cc.matched = true;
+        }
+      }
+
+      bool has_mu = false;
+      for (const auto& mh : raw_muon_hits) {
+        if (std::fabs(wrap_dphi(mh.phi_rad, trk_phi)) < 0.30f) {
+          has_mu = true;
+          break;
+        }
+      }
+
+      bool has_rich = false;
+      reco::rich::Species rich_sp = reco::rich::Species::Pion;
+      {
+        double sum_tc = 0.0;
+        std::int32_t n_ph = 0;
+        std::int32_t rich_det = reco::rich::kDetectorIdBrich;
+        for (const auto& rh : raw_rich_hits) {
+          if (std::fabs(wrap_dphi(rh.phi_rad, trk_phi)) < 0.25f) {
+            sum_tc += static_cast<double>(rh.theta_c_rad);
+            ++n_ph;
+            rich_det = rh.detector_id;
+          }
+        }
+        if (n_ph > 0) {
+          const float p_mag = std::min(chosen.p_gev(b0.bz), 45.0f);
+          const reco::rich::RichRingMeasurement ring{
+              .momentum_gev = p_mag,
+              .refractive_index = reco::rich::kRefractiveIndexLiquid,
+              .measured_theta_rad = static_cast<float>(sum_tc / static_cast<double>(n_ph)),
+              .sigma_theta_rad = 0.01f,
+              .num_photons = n_ph,
+          };
+          const auto lr = reco::rich::evaluate_hypotheses(ring);
+          reco::rich::write_ter_bank(out.tanagra, ring, lr, rich_det);
+          has_rich = true;
+          rich_sp = lr.best_species;
+        }
+      }
+
+      const float dedx = !dedx_samples.empty()
+                             ? reco::tpc::truncated_mean_dedx(dedx_samples)
+                             : 1.0f;
+
+      charged_candidates.push_back(ChargedCandidate{
+          .pid_input = dst::TrackPidInput{
+              .track = chosen,
+              .charge = q,
+              .ecal_energy_gev = ecal_e,
+              .hcal_energy_gev = hcal_e,
+              .tpc_dedx = dedx,
+              .has_muon_hit = has_mu,
+              .rich_species = rich_sp,
+              .has_rich = has_rich,
+          },
+          .solver_cand = reco::tracking::CandidateTrack{
+              .id = static_cast<std::int32_t>(charged_candidates.size()),
+              .te_ids = std::move(te_ids),
+              .score = static_cast<double>(cl.hits.size()) +
+                       static_cast<double>(ecal_e + hcal_e) * 0.1,
+          },
+      });
+    }
+
+    for (const auto& cc : raw_calo_clusters) {
+      if (!cc.matched) {
+        neutrals.push_back(dst::NeutralInput{
+            .xyz_cm = cc.xyz_cm,
+            .energy_gev = cc.energy_gev,
+            .is_ecal = cc.is_ecal,
+        });
+      }
+    }
+  }
+
   // 4. Global ambiguity resolution & TKR banking
   out.tracks_before_ambiguity = charged_candidates.size();
   std::vector<dst::TrackPidInput> accepted_tracks;
@@ -512,7 +1006,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
 
   // 5. Short-DST construction (primary vertex + PID + kinematics)
   out.dst_event = dst::build_short_dst(
-      out.run, out.event, b0.bz, accepted_tracks, neutrals, beamspot);
+      out.run, out.event, b0.bz, accepted_tracks, neutrals, beamspot, is_bhabha);
 
   return out;
 }

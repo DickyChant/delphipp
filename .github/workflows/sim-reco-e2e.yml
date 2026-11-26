@@ -19,7 +19,9 @@ on:
     branches: [ main ]
     paths:
       - ".github/workflows/sim-reco-e2e.yml"
+      - "db/**"
       - "io/**"
+      - "reco/**"
       - "dst/**"
       - "pipeline/**"
       - "apps/**"
@@ -222,6 +224,27 @@ jobs:
             fi
           done
           test "$CHECKED" -gt 0
+
+          if [ -f "$PWD/e2e_reports/simana.fadsim_summary.json" ]; then
+            python3 - "$PWD/e2e_reports/simana.fadsim_summary.json" <<'PY'
+          import json, math, sys
+          data = json.load(open(sys.argv[1]))
+          top_evts = [e for e in data.get("events", []) if e.get("top_bank") == "TOP" and e.get("raw_blocklets", 0) > 0]
+          assert top_evts, "Expected non-empty TOP raw events in simana.fadsim"
+          det_sets = set()
+          total_tdr = total_ter = total_dst = 0
+          for e in top_evts:
+              det_sets.update(e.get("detectors", {}).keys())
+              total_tdr += e.get("tdr", 0)
+              total_ter += e.get("ter", 0)
+              total_dst += e.get("dst_particles", 0)
+              assert math.isfinite(e.get("visible_energy_gev", 0.0))
+          print(f"Pure-raw .fadsim TOP check: {len(top_evts)} events, detectors={sorted(det_sets)}, tdr={total_tdr}, ter={total_ter}, dst_particles={total_dst}")
+          assert len(det_sets) >= 5, f"Expected >=5 active detector partitions, got {det_sets}"
+          assert total_tdr > 0 and total_ter > 0, "Expected non-zero TDR/TER banks from raw events"
+          assert total_dst > 0, "Expected non-zero reconstructed DST particles from raw events"
+          PY
+          fi
 
       - name: Upload E2E inspection, Fortran reference, CSV & HepMC3 reports
         if: always()

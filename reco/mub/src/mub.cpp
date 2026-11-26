@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace delphipp::reco::mub {
 
@@ -183,6 +184,58 @@ std::optional<MubTripletResult> reconstruct_triplet(
       .anode_time_ns = tdd,
       .time_sum_ns = tsum,
   };
+}
+
+std::vector<MubRawHit> unpack_raw_blocklet(std::span<const std::int32_t> words,
+                                           const LtdCalibration& ltd) {
+  std::vector<MubRawHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  LtdCalibration eff = ltd;
+  if (eff.coarse_step_ns == 0.0f) {
+    eff.coarse_step_ns = 8.0f;
+  }
+  constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    if ((u & 0x3FFFu) == 0u) {
+      continue;
+    }
+    const std::int32_t sector = static_cast<std::int32_t>((u >> 22) & 0x3Fu) % 48 + 1;
+    const std::int32_t layer = static_cast<std::int32_t>((u >> 19) & 0x7u) % 7 + 1;
+    const std::int32_t pos = static_cast<std::int32_t>((u >> 16) & 0x7u) % 3 + 1;
+    const float r_cm = 430.0f + static_cast<float>(layer) * 10.0f;
+    const float phi_rad = (static_cast<float>((sector - 1) % 24) + 0.5f) * (kTwoPi / 24.0f);
+    const float z_cm = (sector <= 24) ? 100.0f : -100.0f;
+    hits.push_back(MubRawHit{
+        .sector = sector,
+        .layer = layer,
+        .pos = pos,
+        .r_cm = r_cm,
+        .phi_rad = phi_rad,
+        .z_cm = z_cm,
+        .time_ns = ltd_time_ns(words[i], eff),
+    });
+  }
+  return hits;
+}
+
+std::vector<TanagraId> write_ter_banks(TanagraStore& store,
+                                       std::span<const MubRawHit> hits) {
+  std::vector<TanagraId> ids;
+  ids.reserve(hits.size());
+  for (const auto& h : hits) {
+    ids.push_back(store.add_ter(TerBank{
+        .detector_id = kDetectorId,
+        .submod_id = h.sector * 10 + h.layer,
+        .descriptor = 125,
+        .fwords = {h.r_cm, h.r_cm * h.phi_rad, h.z_cm, h.time_ns},
+    }));
+  }
+  return ids;
 }
 
 }  // namespace delphipp::reco::mub

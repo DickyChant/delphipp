@@ -34,6 +34,8 @@ namespace {
 
 struct CliOptions {
   std::string input_fz_path;
+  std::string ddb_kapack_path;
+  std::string ddb_asc_path;
   std::string out_json_path;
   std::string summary_json_path;
   std::string csv_out_path;
@@ -50,6 +52,10 @@ CliOptions parse_cli(int argc, char** argv) {
     const std::string arg = argv[i];
     if (arg == "--input" && i + 1 < argc) {
       opt.input_fz_path = argv[++i];
+    } else if (arg == "--ddb-kapack" && i + 1 < argc) {
+      opt.ddb_kapack_path = argv[++i];
+    } else if (arg == "--ddb-asc" && i + 1 < argc) {
+      opt.ddb_asc_path = argv[++i];
     } else if (arg == "--out" && i + 1 < argc) {
       opt.out_json_path = argv[++i];
     } else if (arg == "--summary-json" && i + 1 < argc) {
@@ -265,6 +271,7 @@ int run_fz_file_reco(const CliOptions& opt,
                 << "): banks=" << res.zebra_banks
                 << ", raw_blocklets=" << res.raw_blocklets
                 << ", hof_hits=" << res.hof_hits
+                << ", kalman_refits=" << res.kalman_refits
                 << ", tracks=" << res.tracks_after_ambiguity
                 << "/" << res.tracks_before_ambiguity
                 << ", dst_particles=" << res.dst_event.particles.size()
@@ -302,6 +309,7 @@ int run_fz_file_reco(const CliOptions& opt,
            << ", \"zebra_banks\": " << r.zebra_banks
            << ", \"raw_blocklets\": " << r.raw_blocklets
            << ", \"hof_hits\": " << r.hof_hits
+           << ", \"kalman_refits\": " << r.kalman_refits
            << ", \"tdr\": " << r.tanagra.tdr_count()
            << ", \"ter\": " << r.tanagra.ter_count()
            << ", \"tkr\": " << r.tanagra.tkr_count()
@@ -364,6 +372,24 @@ int main(int argc, char** argv) {
       "*DBRECORD\nCALB GLOB$TPC*.GLOB$ENP0.W\n 940101,000001,990101,120000\n"
       "*DBFIELD SLOW\n 3,SLOW,14., 1.10208\n");
   cond_db.load_ascii(asc);
+  if (!opt.ddb_kapack_path.empty()) {
+    std::ifstream kfs(opt.ddb_kapack_path, std::ios::binary);
+    if (!kfs) {
+      std::cerr << "delphipp_reco: cannot open --ddb-kapack: "
+                << opt.ddb_kapack_path << '\n';
+      return 1;
+    }
+    cond_db.load_kapack(kfs);
+  }
+  if (!opt.ddb_asc_path.empty()) {
+    std::ifstream afs(opt.ddb_asc_path);
+    if (!afs) {
+      std::cerr << "delphipp_reco: cannot open --ddb-asc: "
+                << opt.ddb_asc_path << '\n';
+      return 1;
+    }
+    cond_db.load_ascii(afs);
+  }
   const auto abst0 = cond_db.resolve_word("CALB", "GLOB$TPC*.GLOB$ENP0", "SLOW",
                                           14, {940526, 120000});
 

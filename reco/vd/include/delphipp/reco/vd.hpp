@@ -45,6 +45,9 @@ struct VdCluster {
   std::int32_t width = 0;
 };
 
+[[nodiscard]] std::vector<VdStripHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words);
+
 [[nodiscard]] std::vector<VdCluster> find_clusters(
     std::span<const VdStripHit> strips,
     const VdConfig& cfg = {});

@@ -222,4 +222,48 @@ std::vector<MusTeBank> build_te(std::span<const MusSpacePoint> space_points,
   return tes;
 }
 
+std::vector<MusRawHit> unpack_raw_blocklet(std::span<const std::int32_t> words,
+                                           const MusConfig& cfg) {
+  std::vector<MusRawHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::int32_t iadc = static_cast<std::int32_t>(u & 0xFFu);
+    const std::int32_t iadr = static_cast<std::int32_t>((u >> 8) & 0xFFFFu);
+    const float amp = shape_amplitude(iadr, iadc, cfg);
+    if (amp <= 0.0f) {
+      continue;
+    }
+    const std::int32_t det = static_cast<std::int32_t>((u >> 16) & 0xFu) + 1;
+    const std::int32_t layer = static_cast<std::int32_t>((u >> 14) & 0x3u) + 1;
+    const std::int32_t element = static_cast<std::int32_t>((u >> 8) & 0x3Fu) + 1;
+    hits.push_back(MusRawHit{
+        .det = det,
+        .layer = layer,
+        .element = element,
+        .amplitude = amp,
+    });
+  }
+  return hits;
+}
+
+std::vector<TanagraId> write_ter_banks(TanagraStore& store,
+                                       std::span<const MusTeBank> banks) {
+  std::vector<TanagraId> ids;
+  ids.reserve(banks.size());
+  for (const auto& b : banks) {
+    ids.push_back(store.add_ter(TerBank{
+        .detector_id = b.detector_id,
+        .submod_id = b.submod_id,
+        .descriptor = b.descriptor,
+        .fwords = {b.r, b.r_phi, b.z, b.cov_rphi, b.cov_rphi_z, b.cov_z},
+    }));
+  }
+  return ids;
+}
+
 }  // namespace delphipp::reco::mus

@@ -47,6 +47,11 @@ struct EmfCluster {
   std::int32_t num_blocks = 0;
 };
 
+// Decode raw FEMC blocklet words into calibrated EmfBlockHits.
+[[nodiscard]] std::vector<EmfBlockHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    const EmfConfig& cfg = {});
+
 // 8-connected 2D block clustering per endcap (matching EEFIND neighborhood logic).
 [[nodiscard]] std::vector<EmfCluster> find_clusters(
     std::span<const EmfBlockHit> blocks,

@@ -9,6 +9,31 @@
 
 namespace delphipp::reco::vd {
 
+std::vector<VdStripHit> unpack_raw_blocklet(std::span<const std::int32_t> words) {
+  std::vector<VdStripHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t adc = u & 0xFFu;
+    if (adc == 0u) {
+      continue;
+    }
+    hits.push_back(VdStripHit{
+        .layer = static_cast<std::int32_t>((u >> 23) & 0x3u) % 3 + 1,
+        .module = static_cast<std::int32_t>((u >> 18) & 0x1Fu) % 24 + 1,
+        .strip = static_cast<std::int32_t>((u >> 8) & 0x3FFu),
+        .pulse_height = static_cast<float>(adc),
+        .noise = 2.0f,
+        .is_z_side = ((u >> 25) & 1u) != 0u,
+    });
+  }
+  return hits;
+}
+
 std::vector<VdCluster> find_clusters(std::span<const VdStripHit> strips,
                                      const VdConfig& cfg) {
   std::vector<VdStripHit> active;

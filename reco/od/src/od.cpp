@@ -3,7 +3,41 @@
 
 #include "delphipp/reco/od.hpp"
 
+#include <numbers>
+
 namespace delphipp::reco::od {
+
+std::vector<OdTubeHit> unpack_raw_blocklet(std::span<const std::int32_t> words) {
+  std::vector<OdTubeHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t tdc_a = u & 0xFFu;
+    const std::uint32_t tdc_c = (u >> 8) & 0xFFu;
+    if (tdc_a == 0u && tdc_c == 0u) {
+      continue;
+    }
+    const std::int32_t layer = static_cast<std::int32_t>((u >> 16) & 0x7u) % 5 + 1;
+    const std::int32_t plank = static_cast<std::int32_t>((u >> 19) & 0x1Fu) % kNumPlanks + 1;
+    const float r_cm = 197.0f + static_cast<float>(layer - 1) * 2.25f;
+    const float phi = (static_cast<float>(plank - 1) + 0.5f) * (kTwoPi / static_cast<float>(kNumPlanks));
+    hits.push_back(OdTubeHit{
+        .plank = plank,
+        .layer = layer,
+        .r_cm = r_cm,
+        .r_phi_cm = r_cm * phi,
+        .t_end_a_ns = static_cast<float>(tdc_a) * 0.5f,
+        .t_end_c_ns = static_cast<float>(tdc_c) * 0.5f,
+        .has_z_timing = (tdc_a > 0u && tdc_c > 0u),
+    });
+  }
+  return hits;
+}
 
 std::vector<OdTrackElement> reconstruct_planks(std::span<const OdTubeHit> hits,
                                                float v_prop_cm_per_ns) {

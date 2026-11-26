@@ -9,6 +9,10 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <vector>
+
+#include "delphipp/tanagra_store.hpp"
 
 namespace delphipp::reco::mub {
 
@@ -79,5 +83,22 @@ struct MubTripletResult {
     std::array<float, 3> times_ns,
     const MubChamberCalib& chamber,
     const MubConfig& cfg = {}) noexcept;
+
+struct MubRawHit {
+  std::int32_t sector = 1;
+  std::int32_t layer = 1;
+  std::int32_t pos = 1;
+  float r_cm = 445.0f;
+  float phi_rad = 0.0f;
+  float z_cm = 0.0f;
+  float time_ns = 0.0f;
+};
+
+[[nodiscard]] std::vector<MubRawHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    const LtdCalibration& ltd = {});
+
+std::vector<TanagraId> write_ter_banks(TanagraStore& store,
+                                       std::span<const MubRawHit> hits);
 
 }  // namespace delphipp::reco::mub

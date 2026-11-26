@@ -58,6 +58,10 @@ class ConditionDatabase {
   // Returns the number of records parsed.
   std::size_t load_ascii(std::istream& in);
 
+  // Load records from a binary CERNLIB KAPACK v2 stream (e.g. FOR050–FOR056).
+  // Returns the number of leaf entries decoded into ConditionRecords.
+  std::size_t load_kapack(std::istream& in, std::size_t max_entries = 100'000);
+
   [[nodiscard]] std::size_t record_count() const noexcept { return records_.size(); }
 
   // Resolve merged field words for (table, path, field) at `query_time`.

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "delphipp/geometry.hpp"
+#include "delphipp/tanagra_store.hpp"
 
 namespace delphipp::reco::mus {
 
@@ -104,5 +105,12 @@ struct MusTeBank {
     std::span<const MusSpacePoint> space_points,
     const MusGeometry& geom,
     const MusConfig& cfg = {});
+
+[[nodiscard]] std::vector<MusRawHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    const MusConfig& cfg = {});
+
+std::vector<TanagraId> write_ter_banks(TanagraStore& store,
+                                       std::span<const MusTeBank> banks);
 
 }  // namespace delphipp::reco::mus

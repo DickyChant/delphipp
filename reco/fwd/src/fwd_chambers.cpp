@@ -3,9 +3,41 @@
 
 #include "delphipp/reco/fwd_chambers.hpp"
 
+#include <array>
 #include <cmath>
+#include <numbers>
 
 namespace delphipp::reco::fwd {
+
+std::vector<ForwardWireHit> unpack_raw_blocklet(std::span<const std::int32_t> words,
+                                                std::int32_t detector_id) {
+  std::vector<ForwardWireHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  constexpr float kPi = std::numbers::pi_v<float>;
+  constexpr std::array<float, 3> kAngles = {0.0f, kPi / 3.0f, -kPi / 3.0f};
+  const float abs_z = (detector_id == kDetectorIdFcb) ? 275.0f : 160.0f;
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t u_raw = u & 0x3FFu;
+    if (u_raw == 0u) {
+      continue;
+    }
+    const std::size_t plane = static_cast<std::size_t>((u >> 10) & 0x3u) % 3u;
+    const std::int32_t endcap = ((u >> 12) & 1u) ? 2 : 1;
+    hits.push_back(ForwardWireHit{
+        .endcap = endcap,
+        .z_cm = (endcap == 1) ? abs_z : -abs_z,
+        .alpha_rad = kAngles[plane],
+        .u_cm = (static_cast<float>(u_raw) - 512.0f) * 0.25f,
+        .sigma_u_cm = 0.03f,
+    });
+  }
+  return hits;
+}
 
 std::optional<ForwardSegment> fit_segment(std::span<const ForwardWireHit> hits) noexcept {
   if (hits.size() < 2) {

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 #include "delphipp/tanagra_store.hpp"
 
@@ -43,6 +44,18 @@ struct RichLikelihoodResult {
   std::array<float, 5> chi2{};
   Species best_species = Species::Pion;
 };
+
+struct RichPhotonHit {
+  std::int32_t detector_id = kDetectorIdBrich;
+  std::int32_t sector = 1;
+  float phi_rad = 0.0f;
+  float theta_c_rad = 0.0f;
+  float z_cm = 0.0f;
+};
+
+[[nodiscard]] std::vector<RichPhotonHit> unpack_raw_blocklet(
+    std::span<const std::int32_t> words,
+    std::int32_t detector_id = kDetectorIdBrich);
 
 // Expected Cherenkov angle theta_c = arccos(1 / (n * beta)), or nullopt below threshold.
 [[nodiscard]] std::optional<float> expected_cherenkov_angle(

@@ -22,6 +22,46 @@ float delta_phi(float a, float b) noexcept {
 
 }  // namespace
 
+std::vector<HpcChargeHit> unpack_raw_blocklet(std::span<const std::int32_t> words,
+                                              const HpcConfig& cfg) {
+  std::vector<HpcChargeHit> hits;
+  if (words.size() < 4) {
+    return hits;
+  }
+  const std::size_t start =
+      (words[0] >= 4 && static_cast<std::size_t>(words[0]) <= words.size()) ? 4u : 0u;
+  constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+  const float dr = (kOuterRadiusCm - kInnerRadiusCm) / static_cast<float>(kNumLayers);
+
+  for (std::size_t i = start; i < words.size(); ++i) {
+    const std::uint32_t u = static_cast<std::uint32_t>(words[i]);
+    const std::uint32_t adc = u & 0xFFu;
+    const float energy_gev = static_cast<float>(adc) * 0.025f;
+    if (adc == 0u || energy_gev < cfg.min_charge_gev) {
+      continue;
+    }
+    const std::uint32_t time_bin = (u >> 8) & 0x1FFu;
+    const std::int32_t layer = static_cast<std::int32_t>((u >> 17) & 0xFu) % 9 + 1;
+    const std::int32_t module = static_cast<std::int32_t>((u >> 21) & 0xFFu) % 144 + 1;
+    const std::int32_t phi_idx = (module - 1) % 24;
+    const std::int32_t z_ring = (module - 1) / 24;
+    const float r_cm = kInnerRadiusCm + (static_cast<float>(layer) - 0.5f) * dr;
+    const float phi_rad = (static_cast<float>(phi_idx) + 0.5f) * (kTwoPi / 24.0f);
+    const float base_z = -210.0f + (static_cast<float>(z_ring) + 0.5f) * 84.0f;
+    const float drift_z = static_cast<float>(time_bin) * 0.08f * cfg.drift_velocity_cm_per_us;
+    const float z_cm = std::clamp(base_z + drift_z * 0.1f, -250.0f, 250.0f);
+    hits.push_back(HpcChargeHit{
+        .module = module,
+        .layer = layer,
+        .r_cm = r_cm,
+        .phi_rad = phi_rad,
+        .z_cm = z_cm,
+        .energy_gev = energy_gev,
+    });
+  }
+  return hits;
+}
+
 std::vector<HpcShower> reconstruct_showers(std::span<const HpcChargeHit> hits,
                                            const HpcConfig& cfg) {
   std::vector<std::size_t> active;
