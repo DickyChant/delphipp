@@ -71,6 +71,9 @@ DstEvent build_short_dst(std::int32_t run,
 
   for (const auto& ct : charged_tracks) {
     const float p = ct.track.p_gev(bz_gev_per_cm);
+    if (!std::isfinite(p) || p > 500.0f) {
+      continue;
+    }
     const float st = std::sin(ct.track.theta);
     const float ct_th = std::cos(ct.track.theta);
     const float px = p * st * std::cos(ct.track.phi0);

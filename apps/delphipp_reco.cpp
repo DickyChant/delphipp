@@ -292,6 +292,9 @@ int run_fz_file_reco(const CliOptions& opt,
       while (!trimmed_top.empty() && trimmed_top.back() == ' ') {
         trimmed_top.pop_back();
       }
+      const float vis_e = std::isfinite(r.dst_event.visible_energy_gev)
+                              ? r.dst_event.visible_energy_gev
+                              : 0.0f;
       sofs << "    {\"index\": " << (i + 1)
            << ", \"run\": " << r.run
            << ", \"event\": " << r.event
@@ -303,7 +306,7 @@ int run_fz_file_reco(const CliOptions& opt,
            << ", \"ter\": " << r.tanagra.ter_count()
            << ", \"tkr\": " << r.tanagra.tkr_count()
            << ", \"dst_particles\": " << r.dst_event.particles.size()
-           << ", \"visible_energy_gev\": " << r.dst_event.visible_energy_gev
+           << ", \"visible_energy_gev\": " << vis_e
            << ", \"detectors\": {";
       bool first_det = true;
       for (const auto& [dname, cnt] : r.detector_blocklet_counts) {

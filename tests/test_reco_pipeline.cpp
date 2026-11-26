@@ -175,10 +175,23 @@ int main() {
     set_fw(st1, 7, 0.13957f);
     sim_ev.banks.push_back(make_bank("ST  ", 0, 5, 1, {}, st1));
 
+    std::vector<std::int32_t> st_beam(13, 0);
+    set_fw(st_beam, 1, 0.0f);
+    set_fw(st_beam, 2, 0.0f);
+    set_fw(st_beam, 3, 45.625f);
+    set_fw(st_beam, 4, 45.625f);
+    set_fw(st_beam, 6, -1.0f);
+    set_fw(st_beam, 7, 0.000511f);
+    sim_ev.banks.push_back(make_bank("ST  ", 0, 5, 1, {}, st_beam));
+
     const auto out = pipe.reconstruct_event(sim_ev);
     assert(out.dst_event.particles.size() == 1);
     assert(out.dst_event.particles[0].charge == -1);
-    assert(out.dst_event.visible_energy_gev > 20.0f);
+    assert(std::isfinite(out.dst_event.visible_energy_gev));
+    assert(std::fabs(out.dst_event.visible_energy_gev - 23.85f) < 0.5f);
+    const std::string dj = out.dst_event.to_json();
+    assert(dj.find("inf") == std::string::npos);
+    assert(dj.find("nan") == std::string::npos);
   }
 
   std::cout << "test_reco_pipeline: PASS\n";

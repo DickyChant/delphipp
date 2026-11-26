@@ -31,12 +31,13 @@ PerigeeTrack track_from_p3_charge(float px,
                                   float bz,
                                   float eps = 0.0f,
                                   float z0 = 0.0f) {
-  const float p = std::sqrt(px * px + py * py + pz * pz);
+  const float pt = std::hypot(px, py);
+  const float p = std::hypot(pt, pz);
   const float theta =
       (p > 1e-6f) ? std::acos(std::clamp(pz / p, -1.0f, 1.0f)) : 1.5707963f;
   const float phi0 = std::atan2(py, px);
   const float signed_q = (charge == 0) ? 1.0f : static_cast<float>(charge);
-  const float inv_r = (p > 1e-5f) ? (signed_q * bz / p) : 0.0f;
+  const float inv_r = (pt > 1e-5f) ? (signed_q * bz / pt) : 0.0f;
   return PerigeeTrack{
       .eps = eps,
       .z0 = z0,
@@ -397,6 +398,9 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
 
     const int ch_code = static_cast<int>(std::lround(ch_code_f));
     if (ch_code == 1 || ch_code == 2) {
+      if (std::hypot(px, py) < 1e-3f) {
+        continue;
+      }
       const std::int32_t q = (ch_code == 1) ? +1 : -1;
       const auto trk = track_from_p3_charge(
           px, py, pz, q, b0.bz,
@@ -452,6 +456,9 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
       }
       const int q = static_cast<int>(std::lround(charge_f));
       if (q == 1 || q == -1) {
+        if (std::hypot(px, py) < 1e-3f) {
+          continue;
+        }
         const auto trk = track_from_p3_charge(px, py, pz, q, b0.bz);
         charged_candidates.push_back(ChargedCandidate{
             .pid_input = dst::TrackPidInput{.track = trk, .charge = q},
