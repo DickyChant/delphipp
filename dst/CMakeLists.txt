@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(delphipp_dst STATIC
+  src/dst_fix.cpp
   src/dst_writer.cpp
+  src/energy_flow.cpp
+  src/event_assoc.cpp
   src/short_dst.cpp
 )
 add_library(delphipp::dst ALIAS delphipp_dst)

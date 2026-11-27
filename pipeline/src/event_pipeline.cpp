@@ -27,6 +27,7 @@
 #include "delphipp/reco/rich.hpp"
 #include "delphipp/reco/sat.hpp"
 #include "delphipp/reco/stc.hpp"
+#include "delphipp/reco/stw.hpp"
 #include "delphipp/reco/tof.hpp"
 #include "delphipp/reco/tpc.hpp"
 #include "delphipp/reco/vd.hpp"
@@ -193,6 +194,7 @@ std::string detector_name(std::int32_t detector_id) {
     case 26: return "MUF";
     case 29: return "HOF";
     case 30: return "MUS";
+    case 31: return "STW";
     default: return "DET" + std::to_string(detector_id);
   }
 }
@@ -422,6 +424,25 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
         push_calo_xyz({c.r_cm * std::cos(c.phi_rad), c.r_cm * std::sin(c.phi_rad), c.z_cm},
                       c.energy_gev, true);
       }
+    } else if (pname == "STW") {
+      const auto hits = reco::stw::unpack_raw_blocklet(data);
+      const auto elems = reco::stw::reconstruct_elements(hits);
+      const auto ter_ids = reco::stw::write_ter_banks(out.tanagra, elems);
+      for (std::size_t k = 0; k < elems.size(); ++k) {
+        const auto& e = elems[k];
+        raw_track_hits.push_back(RawTrackHit{
+            .meas = {
+                .r_cm = e.r_ref_cm,
+                .phi_rad = norm_phi(e.phi_rad),
+                .z_cm = 0.0f,
+                .sigma_rphi_cm = 0.015f,
+                .sigma_z_cm = 2.0f,
+                .has_z = false,
+                .material_x0 = 0.008f,
+            },
+            .ter_id = static_cast<std::int32_t>(ter_ids[k]),
+        });
+      }
     } else if (pname == "TOF") {
       const auto tof_hits = reco::tof::unpack_raw_blocklet(data);
       if (!tof_hits.empty()) {
@@ -590,6 +611,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
     if (raw_id == "RIRA") return "RIB";
     if (raw_id == "SARA") return "SAT";
     if (raw_id == "STRA") return "STC";
+    if (raw_id == "STWR") return "STW";
     if (raw_id == "TORA") return "TOF";
     if (raw_id == "MURA") return "MUB";
     return detector_name(det_id);

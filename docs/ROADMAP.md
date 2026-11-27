@@ -19,8 +19,9 @@ See [README.md](../README.md) for the live module-by-module replacement matrix (
 | **v0.5 — Tracking Detectors, RICH & Vertex** | Pure-C++20 algorithms for `VD`, `ID`, `TPC` (94D `ABST0` & truncated `dE/dx`), `OD`, `FCA`/`FCB`, `RICH`, Kalman refit, primary vertex fitter | Done (core C++20) |
 | **v0.6 — Unified Pipeline, Short DST & E2E** | `pipeline/` (`EventReconstructionPipeline`), `dst/` (`ShortDST`, `CSV`/`NDJSON`/`HepMC3`), `fortran_fz_dump.f` + `compare_fortran_cpp.py`, Doxygen Awesome + GitHub Pages, 10-event Pythia8/DELSIM E2E | Done |
 | **v0.7 — Relocation Tree, 18-Partition `RAWD` & `SIM_` Truth** | Exact ZEBRA FZ relocation-table link reconstruction (`TOP -> RAW -> 18 PMBs -> RAWD`), `HAC`/`TOF`/`TPC`/`HOF` raw unpackers, and DELSIM `SP`/`ST` truth decoding in `pipeline/` | Done |
-| **v0.8 — All Raw Unpackers & Binary DDB** | Decode full physical hits for `VD`, `ID`, `OD`, `FCA`/`FCB`, `HPC`, `EMF`, `STC`, `SAT`/`LUM`, `MUB`/`MUF`/`MUS`, `RICH` and wire live `ConditionDatabase::load_kapack` + `--ddb-kapack` | Done (core + pipeline) |
-| **v1.0 — Standalone Raw-to-DST & Parity** | Pure-raw `.fadsim` track seeding + `kalman_refit` + calo/muon/RICH/`dE/dx` PID -> `ShortDST` without `PA`/`PV` truth; fine-tune 94D `bank_diff.py` tolerances against runs `47014` & `54738` | Wired (tuning `bank_diff` tolerances) |
+| **v0.8 — All Raw Unpackers & Binary DDB** | Decode full physical hits for all 18 detectors (`VD`, `ID`, `STW`, `OD`, `FCA`/`FCB`, `HPC`, `EMF`, `STC`, `SAT`/`LUM`, `MUB`/`MUF`/`MUS`, `RICH`) and wire live `ConditionDatabase::load_kapack` + `--ddb-kapack` | Done (core + pipeline) |
+| **v0.9 — Secondary Vertexing, Jets & DST Fixes** | Standalone `STW` (`stwana.car`), `V0` finder (`recv022`/`rec2nd`), Durham jets & thrust (`eflowxx`/`vecsub72`), MC `evasso`, and `DSTFIX`/`ECORR` (`dstfix31`/`ecorrxx`) | Done (core + tests) |
+| **v1.0 — Standalone Raw-to-DST & Parity** | Pure-raw `.fadsim` track seeding + `kalman_refit` + PID -> `ShortDST`; `BANK_STAT` (`DTOP PA`/`E_vis`) + `RAW_STAT` (`TOP RAWD`) Fortran-vs-C++ parity gates | Wired (tuning per-channel bitfields) |
 
 ## Static Codebase Scale (`simana_v94d`)
 

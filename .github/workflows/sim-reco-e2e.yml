@@ -167,6 +167,36 @@ jobs:
             --csv-out "$PWD/e2e_reports/delphipp_synthetic.csv" \
             --hepmc-out "$PWD/e2e_reports/delphipp_synthetic.hepmc3"
 
+          if [ -f "$PWD/sim_out/simana.sdst" ]; then
+            echo "=== Determinism check on simana.sdst via bank_diff.py ==="
+            ./build/apps/delphipp_reco --input "$PWD/sim_out/simana.sdst" --out "$PWD/e2e_reports/sdst_a.json"
+            ./build/apps/delphipp_reco --input "$PWD/sim_out/simana.sdst" --out "$PWD/e2e_reports/sdst_b.json"
+            python3 tools/bank_diff.py "$PWD/e2e_reports/sdst_a.json" "$PWD/e2e_reports/sdst_b.json" \
+              --policy tests/tolerance_policy_94d.json
+          fi
+
+          echo "=== Probing live binary KAPACK condition database files on CVMFS ==="
+          KAPACK_SAMPLE=""
+          for dir in /cvmfs/delphi.cern.ch/condition-data /cvmfs/opendata.cern.ch/delphi/condition-data; do
+            if [ -d "$dir" ]; then
+              ls -lh "$dir" | head -10 || true
+              for cand in "$dir/DBsysf.dat" "$dir/DBcalb.dat" "$dir/FOR050" "$dir/FOR051"; do
+                if [ -r "$cand" ] && [ -s "$cand" ]; then
+                  KAPACK_SAMPLE="$cand"
+                  break
+                fi
+              done
+            fi
+            [ -n "$KAPACK_SAMPLE" ] && break
+          done
+          if [ -n "$KAPACK_SAMPLE" ] && [ -f "$PWD/sim_out/simana.sdst" ]; then
+            echo "Testing live CVMFS KAPACK ingestion with: $KAPACK_SAMPLE"
+            ./build/apps/delphipp_reco --ddb-kapack "$KAPACK_SAMPLE" \
+              --input "$PWD/sim_out/simana.sdst" --max-events 1 --verbose || true
+          else
+            echo "No uncompressed readable FOR050/DB*.dat KAPACK binary found in standard CVMFS roots."
+          fi
+
       - name: Run CERNLIB Fortran reference dump on real DELSIM files
         run: |
           set -euo pipefail

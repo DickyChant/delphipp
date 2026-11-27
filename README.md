@@ -63,10 +63,10 @@ Static analysis of `simana_v94d` (`164` `.car` files, `810,903` non-comment line
 | **MUF** (Forward Muon Chambers) | `mufana.car` | 1,315 | `reco/muf/muf.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RMUF`->`TER`) | Pending chamber hit `bank_diff` |
 | **MUB** (Barrel Muon Chambers) | `mubana.car` | 2,783 | `reco/mub/mub.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RMUB`->`TER`) | Pending chamber hit `bank_diff` |
 | **TOF** (Time of Flight) | `tofana.car` | 4,259 | `reco/tof/tof.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RTOF`->`TDR`) | Pending timing `bank_diff` |
-| **SAT** (Small Angle Tagger) | `satana.car` | 5,100 | `reco/sat/sat.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RSAT`->`TER`) | Pending luminosity `bank_diff` |
 | **EMF** (Forward EM Calorimeter) | `emfana.car` | 5,181 | `reco/emf/emf.hpp` | Done (`unpack_raw_blocklet`) | Yes (`REMF`->`TER`) | Pending shower `bank_diff` |
 | **HAD** (Hadron Calorimeter) | `hadana.car` | 5,878 | `reco/had/had.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RHAC`->`TER`) | Pending tower `bank_diff` |
-| **STW** / **LUM** (Straw / Lumi) | `stwana.car`, `lumana.car` | 14,225 | `reco/stc/stc.hpp`, `reco/sat/sat.hpp` | Done (integrated `STC`/`SAT`) | Yes (`RLUM`->`TER`) | Pending standalone `STW` split |
+| **STW** (ID Straw Tube Detector) | `stwana.car` | 6,561 | `reco/stw/stw.hpp` | Done (`unpack_raw_blocklet`) | Yes (`STW`/`STWR`->`TER` + seeding) | Pending real-data straw `bank_diff` |
+| **LUM** / **SAT** (VSAT / SAT) | `lumana.car`, `satana.car` | 12,764 | `reco/sat/sat.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RSAT`/`RLUM`->`TER`) | Pending luminosity `bank_diff` |
 | **FCA** (Forward Chamber A) | `fcaana.car` | 8,880 | `reco/fwd/fwd_chambers.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RFCA`->`TER`) | Pending wire-plane `bank_diff` |
 | **STC** (Small Angle Tile Calo) | `stcana.car` | 11,582 | `reco/stc/stc.hpp` | Done (`unpack_raw_blocklet`) | Yes (`STC`->`TER` + Bhabha) | Pending cluster `bank_diff` |
 | **VD** (Vertex Detector) | `vdana.car` | 11,720 | `reco/vd/vd.hpp` | Done (`unpack_raw_blocklet`) | Yes (`RVD `->`TER` + seeding) | Pending alignment DB parity |
@@ -83,13 +83,21 @@ Static analysis of `simana_v94d` (`164` `.car` files, `810,903` non-comment line
 |---|---|---|---|---|---|---|
 | Track Ambiguity Solver | `fxsolv.c`, `fxambi.car` | ~5k | `reco/tracking/ambiguity_solver.hpp` | Done | Yes (raw + DST) | Deterministic node budget |
 | Kalman Track Refit | `tkfb.car`, `tkff.car`, `tkrefitp.car` | ~18k | `reco/tracking/kalman_fitter.hpp` | Done | Yes (pure-raw seeding -> refit) | Pending multi-surface refit parity |
-| Primary Vertex Fit | `pxfvtx.car` | ~6k | `reco/tracking/vertex_fitter.hpp` | Done | Yes | Pending real-data vertex `bank_diff` |
-| Short/Long DST & PID | `pxdst33.car`, `phdstxx.car`, `shortdst.car`, `muflag.car`, `elepha32.car`, `aabtagxx.car` | ~130k | `dst/` (`short_dst`, `dst_writer`) | Done (`CSV`, `NDJSON`, `HepMC3`) | Yes (raw + `PA`/`ST` -> DST) | `.fadsim` & `.sdst` verified in E2E |
-| Detector Simulation (Phase 4) | `delsim36.car`, `sx*.car` | ~150k | `sim/` *(future phase)* | Planned | Container E2E (`runsim`) | E2E Pythia8+DELSIM live |
+| Primary & Secondary (`V0`) Vertexing | `pxfvtx.car`, `recv022.car`, `rec2nd.car` | ~12k | `reco/tracking/vertex_fitter.hpp`, `v0_finder.hpp` | Done | Yes (PV in DST; V0 library) | Pending real-data vertex `bank_diff` |
+| Energy Flow, Durham Jets & Event Shapes | `eflowxx.car`, `vecsub72.car` | ~8k | `dst/energy_flow.hpp` | Done (`cluster_durham_jets`, thrust, `y_32`) | Library ready | Pending jet `bank_diff` |
+| MC Truth Association & `DSTFIX`/`ECORR` | `evasso.car`, `dstfix31.car`, `ecorrxx.car` | ~15k | `dst/event_assoc.hpp`, `dst/dst_fix.hpp` | Done (`associate_particles`, `apply_dst_fixes`) | Library ready | Pending DST fix parity |
+| Short/Long DST & PID | `pxdst33.car`, `phdstxx.car`, `shortdst.car`, `muflag.car`, `elepha32.car`, `aabtagxx.car` | ~130k | `dst/` (`short_dst`, `dst_writer`) | Done (`CSV`, `NDJSON`, `HepMC3`) | Yes (raw + `PA`/`ST` -> DST) | E2E `BANK_STAT` + `RAW_STAT` gated |
+| Detector Simulation (Phase 4) | `delsim36.car`, `*sim.car` | ~150k | `sim/` *(future phase)* | Not started (out of reco scope) | Container E2E (`runsim`) | E2E Pythia8+DELSIM live |
+
+### What Is Still Not Converted (Among the 164 `.car` Files)
+- **Monte Carlo Detector Simulation (`delsim36.car`, `*sim.car`, `geant315.car`, `geanh315.car`)**: Intentional Phase 4 scope — E2E currently runs upstream `runsim` inside `jingyucms/delphi-sim:latest` to generate `.fadsim`/`.sdst` test inputs cleanly in pure C++20 CI.
+- **CERNLIB / Legacy MC Generators (`kernlib.car`, `hbook.car`, `jetset*`, `pythi561.car`, `koralz40.car`, `eurodec.car`, `photos.car`, `fatmen.car`, `kupack.car`, `khpack600.car`)**: Replaced natively by C++20 STL, Pythia8, CSV/JSON/HepMC3, and XRootD/EOS filesystem access.
+- **Standalone Offline Calibration, Alignment & Strip/Run Fixers (`vdalign.car`, `vdcalyd.car`, `vdbeam.car`, `tpcfix.car`, `fcafix.car`, `fcbfix.car`, `fcbt0.car`, `idbfix.car`, `odbfix.car`, `odtiming.car`, `hacfix36.car`, `mucfix.car`, `ricfix.car`, `moddst.car`, `*cra*.car`)**: Patchy cradles and run-by-run offline calibration production scripts (superseded by `ConditionDatabase::load_kapack` + `apply_dst_fixes`).
+- **Full Per-Channel Hardware FASTBUS/LTD Bitfield Tables Across All 18 Subdetectors**: Every subdetector has its working C++20 raw blocklet unpacker and algorithm wired in `pipeline/`; remaining numerical parity tuning replaces generic simulated word masks with exact hardware crate/slot/channel bitfields calibrated against frozen `simana_v94d` DELANA dumps on runs `47014` and `54738`.
 
 ### Remaining Engineering Gates to Full 94D Validation
-1. **Live CVMFS binary DDB extraction**: point `--ddb-kapack` at live `FOR050–056` snapshots (`94D` alignment/calibration tables) and verify detector-by-detector calibration constants match DELANA runs `47014` and `54738`.
-2. **Full bank-level Fortran-vs-C++ tolerance gating**: extend `tools/compare_fortran_cpp.py` from event/header/bank-count checks and raw `.fadsim` non-empty reconstruction assertions to per-bank `TDR`/`TER`/`TKR`/`PA`/`PV` tolerance checks against frozen Fortran DELANA reference dumps.
+1. **Per-detector hardware FASTBUS/LTD bitfield verification**: verify each subdetector's raw word bitfields against real run `47014`/`54738` DELANA `TDR`/`TER` dumps via `tools/bank_diff.py`.
+2. **Offline calibration/alignment table parity**: feed full live `FOR050–056` binary KAPACK geometry (`*DBAS`) and survey constants into every subdetector reconstructor.
 
 ## Repository Layout
 

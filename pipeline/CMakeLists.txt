@@ -28,6 +28,7 @@ target_link_libraries(delphipp_pipeline
     delphipp::reco::hpc
     delphipp::reco::stc
     delphipp::reco::sat
+    delphipp::reco::stw
     delphipp::reco::vd
     delphipp::reco::tpc
     delphipp::reco::id

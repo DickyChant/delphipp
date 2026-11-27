@@ -92,3 +92,7 @@ add_test(NAME io_fz_zebra_parser COMMAND test_fz_zebra_parser)
 add_executable(test_reco_pipeline test_reco_pipeline.cpp)
 target_link_libraries(test_reco_pipeline PRIVATE delphipp::pipeline)
 add_test(NAME pipeline_event_reco COMMAND test_reco_pipeline)
+
+add_executable(test_physics_dst test_physics_dst.cpp)
+target_link_libraries(test_physics_dst PRIVATE delphipp::dst delphipp::reco::stw delphipp::reco::tracking)
+add_test(NAME physics_dst COMMAND test_physics_dst)
