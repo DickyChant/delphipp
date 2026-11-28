@@ -122,6 +122,20 @@ def compare_banks(
     return errors
 
 
+def extract_events(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, dict):
+        return list(raw.get("events", []))
+    if isinstance(raw, list):
+        events: list[dict[str, Any]] = []
+        for item in raw:
+            if isinstance(item, dict) and "events" in item:
+                events.extend(item["events"])
+            elif isinstance(item, dict):
+                events.append(item)
+        return events
+    return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Compare DELPHI ZEBRA/DST bank dumps")
     parser.add_argument("reference", type=Path, help="Golden reference JSON dump")
@@ -129,11 +143,11 @@ def main() -> int:
     parser.add_argument("--policy", type=Path, default=None, help="Optional tolerance policy JSON")
     args = parser.parse_args()
 
-    ref_data = json.loads(args.reference.read_text(encoding="utf-8"))
-    cand_data = json.loads(args.candidate.read_text(encoding="utf-8"))
+    ref_events = extract_events(json.loads(args.reference.read_text(encoding="utf-8")))
+    cand_events = extract_events(json.loads(args.candidate.read_text(encoding="utf-8")))
     policy = TolerancePolicy.from_file(args.policy)
 
-    errors = compare_banks(ref_data.get("events", []), cand_data.get("events", []), policy)
+    errors = compare_banks(ref_events, cand_events, policy)
     if errors:
         print(f"FAIL: {len(errors)} discrepancy(ies) found:")
         for err in errors[:50]:
@@ -142,7 +156,7 @@ def main() -> int:
             print(f"  ... ({len(errors) - 50} more)")
         return 1
 
-    print(f"PASS: {len(ref_data.get('events', []))} event(s) matched within policy.")
+    print(f"PASS: {len(ref_events)} event(s) matched within policy.")
     return 0
 
 

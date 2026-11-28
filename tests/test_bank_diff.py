@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from bank_diff import TolerancePolicy, compare_banks  # noqa: E402
+from bank_diff import TolerancePolicy, compare_banks, extract_events  # noqa: E402
 
 
 class BankDiffTests(unittest.TestCase):
@@ -55,6 +55,12 @@ class BankDiffTests(unittest.TestCase):
             policy,
         )
         self.assertEqual(errs, [])
+
+    def test_extract_events_handles_list_and_dict(self) -> None:
+        evs = self._sample_event()
+        self.assertEqual(extract_events({"events": evs}), evs)
+        multi = [{"events": evs}, {"events": evs}]
+        self.assertEqual(len(extract_events(multi)), 2)
 
 
 if __name__ == "__main__":

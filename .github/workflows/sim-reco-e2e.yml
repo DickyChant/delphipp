@@ -25,6 +25,7 @@ on:
       - "dst/**"
       - "pipeline/**"
       - "apps/**"
+      - "tools/bank_diff.py"
       - "tools/fortran_fz_dump.f"
       - "tools/compare_fortran_cpp.py"
 
