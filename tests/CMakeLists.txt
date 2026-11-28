@@ -96,3 +96,7 @@ add_test(NAME pipeline_event_reco COMMAND test_reco_pipeline)
 add_executable(test_physics_dst test_physics_dst.cpp)
 target_link_libraries(test_physics_dst PRIVATE delphipp::dst delphipp::reco::stw delphipp::reco::tracking)
 add_test(NAME physics_dst COMMAND test_physics_dst)
+
+add_executable(test_sim_core test_sim_core.cpp)
+target_link_libraries(test_sim_core PRIVATE delphipp::sim delphipp::pipeline)
+add_test(NAME sim_core COMMAND test_sim_core)
