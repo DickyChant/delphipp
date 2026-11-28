@@ -96,3 +96,7 @@ add_test(NAME pipeline_event_reco COMMAND test_reco_pipeline)
 add_executable(test_physics_dst test_physics_dst.cpp)
 target_link_libraries(test_physics_dst PRIVATE delphipp::dst delphipp::reco::stw delphipp::reco::tracking)
 add_test(NAME physics_dst COMMAND test_physics_dst)
+
+add_executable(test_pid_btag_trigger test_pid_btag_trigger.cpp)
+target_link_libraries(test_pid_btag_trigger PRIVATE delphipp::reco::pid delphipp::reco::trigger)
+add_test(NAME pid_btag_trigger COMMAND test_pid_btag_trigger)
