@@ -579,8 +579,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
     std::int32_t lpmb = 0;
     if (lraw_root > 0 && zview.bank_nl(lraw_root) >= part.raw_link_idx) {
       lpmb = zview.bank_link(lraw_root, part.raw_link_idx);
-    }
-    if (lpmb <= 0) {
+    } else if (lraw_root <= 0) {
       if (auto it = bank_heads.find(part.pmb_bank); it != bank_heads.end()) {
         lpmb = it->second;
       }
@@ -660,81 +659,59 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
       }
     }
   }
-  if (auto it = bank_heads.find("RAWD"); it != bank_heads.end()) {
-    for (const auto& b : ev.banks) {
-      if (b.idh != "RAWD" || b.orig_addr <= 0) {
-        continue;
+  if (lraw_root <= 0) {
+    if (auto it = bank_heads.find("RAWD"); it != bank_heads.end()) {
+      for (const auto& b : ev.banks) {
+        if (b.idh != "RAWD" || b.orig_addr <= 0) {
+          continue;
+        }
+        // If a RAWD bank was not reached via RAW -> PMB, recover its partition from RAWD payload/ID
+        process_rawd_chain("RAWD", 0, it->second);
+        break;
       }
-      // If a RAWD bank was not reached via RAW -> PMB, recover its partition from RAWD payload/ID
-      process_rawd_chain("RAWD", 0, it->second);
-      break;
     }
   }
 
   // 3. Extract PV beamspot & PA particle candidates (pxdst33.car layout)
   reco::tracking::BeamspotConstraint beamspot{};
-  if (const auto* pv = ev.find_first("PV  ");
-      pv != nullptr && pv->fwords.size() >= 7) {
-    const float vx = pv->fwords[4];
-    const float vy = pv->fwords[5];
-    const float vz = pv->fwords[6];
-    if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
-        std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f &&
-        std::fabs(vz) < 50.0f) {
-      beamspot.xyz_cm = {vx, vy, vz};
-    }
-  } else if (const auto* sp = ev.find_first("SP  ");
-             sp != nullptr && sp->fwords.size() >= 4) {
-    const float vx = sp->fwords[1];
-    const float vy = sp->fwords[2];
-    const float vz = sp->fwords[3];
-    if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
-        std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f &&
-        std::fabs(vz) < 50.0f) {
-      beamspot.xyz_cm = {vx, vy, vz};
-    }
-  }
-
   struct ChargedCandidate {
     dst::TrackPidInput pid_input;
     reco::tracking::CandidateTrack solver_cand;
   };
   std::vector<ChargedCandidate> charged_candidates;
-
   std::int32_t next_syn_id = -1;
-  const auto pa_banks = ev.find_all("PA  ");
-  for (std::size_t i = 0; i < pa_banks.size(); ++i) {
-    const auto* pa = pa_banks[i];
-    if (pa->iwords.size() < 20) {
-      continue;
-    }
-    const std::int32_t nmod = pa->iwords[3];
-    if (nmod < 1 || nmod > 32) {
-      continue;
+
+  auto ingest_pa = [&](std::size_t nd,
+                       std::int32_t nmod,
+                       std::int32_t iword0,
+                       auto&& get_fword,
+                       bool from_dtop_tree) {
+    if (nd < 20 || nmod < 1 || nmod > 32) {
+      return;
     }
     const std::size_t ip1 = static_cast<std::size_t>(4 + nmod);
-    if (ip1 + 10 >= pa->fwords.size()) {
-      continue;
+    if (ip1 + 10 >= nd) {
+      return;
     }
-    const float px = pa->fwords[ip1 + 2];
-    const float py = pa->fwords[ip1 + 3];
-    const float pz = pa->fwords[ip1 + 4];
-    const float energy = pa->fwords[ip1 + 5];
-    const float ch_code_f = pa->fwords[ip1 + 7];
-    const float rp =
-        (ip1 + 10 < pa->fwords.size()) ? pa->fwords[ip1 + 10] : 0.0f;
-    const float dz =
-        (ip1 + 19 < pa->fwords.size()) ? pa->fwords[ip1 + 19] : 0.0f;
+    const float px = get_fword(ip1 + 2);
+    const float py = get_fword(ip1 + 3);
+    const float pz = get_fword(ip1 + 4);
+    const float energy = get_fword(ip1 + 5);
+    const float ch_code_f = get_fword(ip1 + 7);
+    const float rp = (ip1 + 10 < nd) ? get_fword(ip1 + 10) : 0.0f;
+    const float dz = (ip1 + 19 < nd) ? get_fword(ip1 + 19) : 0.0f;
 
     if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz) ||
         !std::isfinite(energy) || energy < 0.0f || energy > 200.0f) {
-      continue;
+      return;
     }
 
     const int ch_code = static_cast<int>(std::lround(ch_code_f));
     if (ch_code == 1 || ch_code == 2) {
-      if (std::hypot(px, py) < 1e-3f) {
-        continue;
+      const float pt = std::hypot(px, py);
+      const float pmag = std::hypot(pt, pz);
+      if (pt < 1e-3f || pmag > 500.0f) {
+        return;
       }
       const std::int32_t q = (ch_code == 1) ? +1 : -1;
       const auto trk = track_from_p3_charge(
@@ -742,7 +719,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
           std::isfinite(rp) ? rp : 0.0f,
           std::isfinite(dz) ? dz : 0.0f);
       const std::int32_t tk_id =
-          (pa->iwords[0] > 0) ? pa->iwords[0] : next_syn_id--;
+          (!from_dtop_tree && iword0 > 0) ? iword0 : next_syn_id--;
       const double cand_score = static_cast<double>(energy) + 1.0;
 
       charged_candidates.push_back(ChargedCandidate{
@@ -760,7 +737,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
       });
     } else {
       const float p_mag = std::sqrt(px * px + py * py + pz * pz);
-      if (p_mag > 1e-4f) {
+      if (p_mag > 1e-4f && energy > 0.0f) {
         const float scale = 200.0f / p_mag;
         neutrals.push_back(dst::NeutralInput{
             .xyz_cm = {px * scale, py * scale, pz * scale},
@@ -769,11 +746,93 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
         });
       }
     }
+  };
+
+  bool used_dtop_tree = false;
+  bool has_beamspot = false;
+  if (auto it = bank_heads.find("DTOP"); it != bank_heads.end()) {
+    const std::int32_t ldtop = it->second;
+    if (zview.bank_nl(ldtop) >= 2 && zview.bank_link(ldtop, 2) > 0) {
+      used_dtop_tree = true;
+      std::int32_t lpv = zview.bank_link(ldtop, 2);
+      std::size_t guard_pv = 0;
+      while (lpv > 0 && guard_pv++ < 10'000) {
+        // pxdst33.car:3277: skip simulated PV banks (JBIT(IQ(LPV), 4) != 0)
+        if ((zview.bank_status(lpv) & 8) == 0) {
+          if (!has_beamspot && zview.bank_nd(lpv) >= 7) {
+            const float vx = zview.bank_fdata(lpv, 5);
+            const float vy = zview.bank_fdata(lpv, 6);
+            const float vz = zview.bank_fdata(lpv, 7);
+            if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
+                std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f &&
+                std::fabs(vz) < 50.0f) {
+              beamspot.xyz_cm = {vx, vy, vz};
+              has_beamspot = true;
+            }
+          }
+          if (zview.bank_nl(lpv) >= 1) {
+            std::int32_t lpa = zview.bank_link(lpv, 1);
+            std::size_t guard_pa = 0;
+            while (lpa > 0 && guard_pa++ < 10'000) {
+              const std::int32_t nd_i = zview.bank_nd(lpa);
+              if (nd_i >= 20) {
+                const std::size_t nd = static_cast<std::size_t>(nd_i);
+                const std::int32_t iword0 = zview.bank_idata(lpa, 1);
+                const std::int32_t nmod = zview.bank_idata(lpa, 4);
+                ingest_pa(
+                    nd, nmod, iword0,
+                    [&](std::size_t idx) {
+                      return zview.bank_fdata(lpa, static_cast<std::int32_t>(idx) + 1);
+                    },
+                    true);
+              }
+              lpa = zview.bank_next(lpa);
+            }
+          }
+        }
+        lpv = zview.bank_next(lpv);
+      }
+    }
+  }
+
+  std::vector<const io::ParsedZebraBank*> pa_banks;
+  if (!used_dtop_tree) {
+    if (const auto* pv = ev.find_first("PV  ");
+        pv != nullptr && pv->fwords.size() >= 7) {
+      const float vx = pv->fwords[4];
+      const float vy = pv->fwords[5];
+      const float vz = pv->fwords[6];
+      if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
+          std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f &&
+          std::fabs(vz) < 50.0f) {
+        beamspot.xyz_cm = {vx, vy, vz};
+      }
+    } else if (const auto* sp = ev.find_first("SP  ");
+               sp != nullptr && sp->fwords.size() >= 4) {
+      const float vx = sp->fwords[1];
+      const float vy = sp->fwords[2];
+      const float vz = sp->fwords[3];
+      if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz) &&
+          std::fabs(vx) < 10.0f && std::fabs(vy) < 10.0f &&
+          std::fabs(vz) < 50.0f) {
+        beamspot.xyz_cm = {vx, vy, vz};
+      }
+    }
+
+    pa_banks = ev.find_all("PA  ");
+    for (const auto* pa : pa_banks) {
+      ingest_pa(
+          pa->fwords.size(),
+          (pa->iwords.size() >= 4) ? pa->iwords[3] : 0,
+          pa->iwords.empty() ? 0 : pa->iwords[0],
+          [&](std::size_t idx) { return pa->fwords[idx]; },
+          false);
+    }
   }
 
   // Fallback for DELSIM MC truth SIM_ records: decode ST truth banks when no PA banks exist
   const auto st_banks = ev.find_all("ST  ");
-  if (pa_banks.empty() && !st_banks.empty()) {
+  if (!used_dtop_tree && pa_banks.empty() && !st_banks.empty()) {
     for (std::size_t i = 0; i < st_banks.size(); ++i) {
       const auto* st = st_banks[i];
       if (st->fwords.size() < 8) {
@@ -818,7 +877,7 @@ EventRecoOutput EventReconstructionPipeline::reconstruct_event(
   }
 
   // 3b. Standalone pure-raw pattern recognition, Kalman refit & PID when no PA/ST exist
-  if (pa_banks.empty() && st_banks.empty()) {
+  if (!used_dtop_tree && pa_banks.empty() && st_banks.empty()) {
     std::sort(raw_track_hits.begin(), raw_track_hits.end(),
               [](const RawTrackHit& a, const RawTrackHit& b) {
                 return a.meas.r_cm < b.meas.r_cm;

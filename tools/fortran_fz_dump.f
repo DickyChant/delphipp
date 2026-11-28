@@ -140,42 +140,45 @@ C
             SUME = 0.0
             LPV = LQ(LSUP - 2)
  35         IF (LPV .GT. 0) THEN
-               LPA = LQ(LPV - 1)
- 36            IF (LPA .GT. 0) THEN
-                  IF (IQ(LPA - 1) .GE. 20) THEN
-                     NMOD = IQ(LPA + 4)
-                     IF (NMOD .GE. 1 .AND. NMOD .LE. 32) THEN
-                        IP1 = 4 + NMOD
-                        IF (IP1 + 11 .LE. IQ(LPA - 1)) THEN
-                           PX = Q(LPA + IP1 + 3)
-                           PY = Q(LPA + IP1 + 4)
-                           PZ = Q(LPA + IP1 + 5)
-                           EN = Q(LPA + IP1 + 6)
-                           CH = Q(LPA + IP1 + 8)
-                           PT = SQRT(PX * PX + PY * PY)
-                           PMAG = SQRT(PT * PT + PZ * PZ)
-                           IF (EN .GE. 0.0 .AND. EN .LE. 200.0) THEN
-                              IF (ABS(CH - 1.0) .LT. 0.1 .OR.
-     +                            ABS(CH - 2.0) .LT. 0.1) THEN
-                                 IF (PT .GE. 1.0E-3) THEN
+               IF (IAND(IQ(LPV), 8) .EQ. 0) THEN
+                  LPA = LQ(LPV - 1)
+ 36               IF (LPA .GT. 0) THEN
+                     IF (IQ(LPA - 1) .GE. 20) THEN
+                        NMOD = IQ(LPA + 4)
+                        IF (NMOD .GE. 1 .AND. NMOD .LE. 32) THEN
+                           IP1 = 4 + NMOD
+                           IF (IP1 + 11 .LE. IQ(LPA - 1)) THEN
+                              PX = Q(LPA + IP1 + 3)
+                              PY = Q(LPA + IP1 + 4)
+                              PZ = Q(LPA + IP1 + 5)
+                              EN = Q(LPA + IP1 + 6)
+                              CH = Q(LPA + IP1 + 8)
+                              PT = SQRT(PX * PX + PY * PY)
+                              PMAG = SQRT(PT * PT + PZ * PZ)
+                              IF (EN .GE. 0.0 .AND. EN .LE. 200.0) THEN
+                                 IF (ABS(CH - 1.0) .LT. 0.1 .OR.
+     +                               ABS(CH - 2.0) .LT. 0.1) THEN
+                                    IF (PT .GE. 1.0E-3 .AND.
+     +                                  PMAG .LE. 500.0) THEN
+                                       NPA = NPA + 1
+                                       NCHG = NCHG + 1
+                                       SUMP = SUMP + PMAG
+                                       SUME = SUME + EN
+                                    ENDIF
+                                 ELSEIF (PMAG .GT. 1.0E-4 .AND.
+     +                                   EN .GT. 0.0) THEN
                                     NPA = NPA + 1
-                                    NCHG = NCHG + 1
+                                    NNEU = NNEU + 1
                                     SUMP = SUMP + PMAG
                                     SUME = SUME + EN
                                  ENDIF
-                              ELSEIF (PMAG .GT. 1.0E-4 .AND.
-     +                                EN .GT. 0.0) THEN
-                                 NPA = NPA + 1
-                                 NNEU = NNEU + 1
-                                 SUMP = SUMP + PMAG
-                                 SUME = SUME + EN
                               ENDIF
                            ENDIF
                         ENDIF
                      ENDIF
+                     LPA = LQ(LPA)
+                     GOTO 36
                   ENDIF
-                  LPA = LQ(LPA)
-                  GOTO 36
                ENDIF
                LPV = LQ(LPV)
                GOTO 35
@@ -188,12 +191,12 @@ C
             NRAWD = 0
             NPMB = 0
             IF (LRAW .GT. 0) THEN
-               IF (IQ(LRAW - 2) .GE. 22) THEN
+               IF (IQ(LRAW - 3) .GE. 22) THEN
                   DO 40 J = 5, 22
                      LPMB = LQ(LRAW - J)
                      IF (LPMB .GT. 0) NPMB = NPMB + 1
  42                  IF (LPMB .GT. 0) THEN
-                        IF (IQ(LPMB - 2) .GE. 5) THEN
+                        IF (IQ(LPMB - 3) .GE. 5) THEN
                            LRD = LQ(LPMB - 5)
  44                        IF (LRD .GT. 0) THEN
                               IF (IQ(LRD - 1) .GE. 2) NRAWD = NRAWD + 1

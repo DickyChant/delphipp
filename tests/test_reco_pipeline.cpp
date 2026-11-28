@@ -281,6 +281,37 @@ int main() {
     assert(dj.find("nan") == std::string::npos);
   }
 
+  // 4. Relocated DTOP -> PV (reco status=0 & sim status=8) -> PA linear chains
+  {
+    io::ParsedFzEvent dtop_ev;
+    dtop_ev.run_number = -47014;
+    dtop_ev.event_number = 9;
+    dtop_ev.has_header_event_number = true;
+    dtop_ev.top_bank = "DTOP";
+
+    auto pa1 = make_pa(5, 10.0f, 0.0f, 0.0f, 10.0f, 1.0f);
+    pa1.orig_addr = 100;
+    pa1.next_link = 150;
+    auto pa2 = make_pa(5, -5.0f, 0.0f, 0.0f, 5.0f, 2.0f);
+    pa2.orig_addr = 150;
+    auto pa_sim = make_pa(99, 2.0f, 2.0f, 0.0f, 2.83f, 1.0f);
+    pa_sim.orig_addr = 200;
+
+    auto pv_reco = make_bank("PV  ", 300, 2, 2, {100, 0}, std::vector<std::int32_t>(10, 0));
+    pv_reco.status = 0;
+    pv_reco.next_link = 400;
+    auto pv_sim = make_bank("PV  ", 400, 2, 2, {200, 0}, std::vector<std::int32_t>(10, 0));
+    pv_sim.status = 8;  // Simulated PV bit 4 (pxdst33.car:3277) -> must be skipped
+
+    auto dtop = make_bank("DTOP", 500, 5, 5, {0, 300, 0, 0, 0}, {1});
+
+    dtop_ev.banks = {pa1, pa2, pa_sim, pv_reco, pv_sim, dtop};
+    const auto out = pipe.reconstruct_event(dtop_ev);
+    assert(out.dst_event.particles.size() == 2);
+    assert(out.tracks_after_ambiguity == 2);
+    assert(std::fabs(out.dst_event.visible_energy_gev - 15.0f) < 0.2f);
+  }
+
   std::cout << "test_reco_pipeline: PASS\n";
   return 0;
 }

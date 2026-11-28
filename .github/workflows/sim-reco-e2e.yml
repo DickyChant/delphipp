@@ -246,15 +246,20 @@ jobs:
         run: |
           set -euo pipefail
           CHECKED=0
+          FAILED=0
           for base in simana.fadsim simana.sdst; do
             ftxt="$PWD/e2e_reports/fortran_${base}.txt"
             csum="$PWD/e2e_reports/${base}_summary.json"
             if [ -f "$ftxt" ] && [ -f "$csum" ]; then
               CHECKED=$((CHECKED + 1))
-              python3 tools/compare_fortran_cpp.py --fortran "$ftxt" --cpp "$csum" --label "$base"
+              if ! python3 tools/compare_fortran_cpp.py --fortran "$ftxt" --cpp "$csum" --label "$base" \
+                   | tee "$PWD/e2e_reports/compare_${base}.txt"; then
+                FAILED=1
+              fi
             fi
           done
           test "$CHECKED" -gt 0
+          test "$FAILED" -eq 0
 
           if [ -f "$PWD/e2e_reports/simana.fadsim_summary.json" ]; then
             python3 - "$PWD/e2e_reports/simana.fadsim_summary.json" <<'PY'
