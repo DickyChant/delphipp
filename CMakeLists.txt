@@ -28,6 +28,7 @@ add_subdirectory(io)
 add_subdirectory(reco)
 add_subdirectory(dst)
 add_subdirectory(pipeline)
+add_subdirectory(sim)
 add_subdirectory(apps)
 add_subdirectory(legacy)
 
